@@ -4,12 +4,18 @@
 
 extern crate sdl2;
 
+mod global;
 mod audio;
+mod beatmap;
+mod setting;
 
 use std::thread;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime};
+use std::io::prelude::*;
+use std::fs::File;
+use std::time::Duration;
 
 static _TARGET_FPS: usize = 72;
 
@@ -17,14 +23,53 @@ const _AUDIO_FILENAME: &str = "assets/audio/magic.wav";
 const _AUDIO_NORMALIZE: bool = true;
 
 fn main() {
+    //_beatmap_stuff();
     //_test_concurrency();
-    _audio_stuff();
+    //_audio_stuff();
+    //_graphics_stuff()
+    _beatmap_stuff()
+}
+
+fn _graphics_stuff(){
+}
+
+fn _timing_stuff(){
+    let (tx, rx) = mpsc::channel();
+    let t = thread::spawn(move ||{
+        for _ in 0..100{
+            tx.send(SystemTime::now()).unwrap();
+            thread::sleep(Duration::from_millis(100));
+        }
+        println!("thread done");
+    });
+
+    let mut v = Vec::with_capacity(100);
+    for _ in 0..100{
+        let x = rx.recv().unwrap();
+        v.push(SystemTime::now().duration_since(x));
+    }
+    for z in v.iter(){
+        println!("{:?}", z);
+    }
+
+    t.join().unwrap();
+    
+}
+
+fn _beatmap_stuff(){
+    //let b = beatmap::Beatmap::load("assets/test_beatmap.osu");
+    let b = beatmap::Beatmap::load("assets/beatmap/Shihori - Magic Girl !! (Frostmourne) [Lunatic].osu");
+    for i in 1..0{
+        println!("ha");
+    }
+    //let n = 14 as usize;
+    //println!("{} {} {}", n, n.to_le(), n.to_be());
 }
 
 fn _test_concurrency(){
     // test Mutex
-    const ARRAY_SIZE:usize = 1_000_000;
-    const LOOP_NUMBER: usize = 1_000_000;
+    const ARRAY_SIZE:usize = 100;
+    const LOOP_NUMBER: usize = 10_000_000;
     const LOOP_MUTEX:bool = true;
     const LOOP_MPSC:bool = true;
     if LOOP_MUTEX {
