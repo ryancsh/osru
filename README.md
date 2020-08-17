@@ -20,6 +20,7 @@ The current idea is to have 3 threads:
 * Mods
 * Online stuff
 * Skins
+* Beatmap Editor
 
 ### No plans to implement:
 * osu taiko

@@ -3,20 +3,52 @@
 #[allow(non_camel_case_types)]
 pub enum SampleSetType{ NoCustom, normal, soft, drum}
 */
+
+pub const DEFAULT_MASTER_VOLUME: f32 = 0.50;
+pub const DEFAULT_TRACK_VOLUME: f32 = 0.50;
+pub const AUDIO_REFERENCE_POWER: usize = 3000;
+
+pub const TIMING_WINDOW_GREAT: GameTime = GameTime(79_500);
+pub const TIMING_WINDOW_GREAT_MULTIPLIER: usize = 6_000;
+pub const TIMING_WINDOW_GOOD: GameTime = GameTime(139_500);
+pub const TIMING_WINDOW_GOOD_MULTIPLIER: usize = 8_000;
+pub const TIMING_WINDOW_MEH: GameTime = GameTime(199_500);
+pub const TIMING_WINDOW_MEH_MULTIPLIER: usize = 10_000;
+
 #[derive(Debug, Clone, Copy)]
 pub enum OsruCurveType{ Bezier, CentripetalCatmullRom, Linear, PerfectCircle}
+#[derive(Debug, Clone, Copy)]
+pub enum OsruHitSuccess{Great, Good, Meh, Miss}
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+pub enum OsruGameModName{
+    None,
+    Easy, HardRock, DoubleTime, HalfTime, NoFail, SuddenDeath, Perfect, Hidden, FlashLight, 
+    //Scoring
+    ScoreOsru, ScoreV1, ScoreV2,
+    //Special
+    Relax, AutoPilot, SpunOut, Auto, 
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct OsruPixel(pub isize);
 #[derive(Debug, Clone, Copy)]
 pub struct OsruPixels(pub isize, pub isize);
-#[derive(Debug, Clone, Copy)]
-pub struct OsruBeatmapTime(pub usize);
+
 #[derive(Debug, Clone, Copy)]
 pub struct OsruCustomHitSound{pub normal: bool, pub whistle: bool, pub finish: bool, pub clap: bool }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Colour<T>(pub T, pub T, pub T, pub T);
+
+#[derive(Debug, Clone, Copy)]
+pub struct OsruOD(pub f64);
+#[derive(Debug, Clone, Copy)]
+pub struct OsruAR(pub f64);
+#[derive(Debug, Clone, Copy)]
+pub struct OsruCS(pub f64);
+
+#[derive(Debug, Clone, Copy)]
+pub struct GameTime(pub usize);
 
 
 #[derive(Debug, Clone)]
@@ -25,7 +57,6 @@ pub enum OsruType{
     Text(String),
     Decimal(f64),
     BitFlag(usize),
-    //Time(usize),
     List(Vec<OsruType>),
 }
 

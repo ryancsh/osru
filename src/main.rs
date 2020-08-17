@@ -7,8 +7,9 @@ extern crate sdl2;
 mod global;
 mod audio;
 mod beatmap;
-mod setting;
+mod game;
 
+use global::*;
 use std::thread;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -58,12 +59,12 @@ fn _timing_stuff(){
 
 fn _beatmap_stuff(){
     //let b = beatmap::Beatmap::load("assets/test_beatmap.osu");
-    let b = beatmap::Beatmap::load("assets/beatmap/Shihori - Magic Girl !! (Frostmourne) [Lunatic].osu");
-    for i in 1..0{
-        println!("ha");
-    }
+    //let b = beatmap::Beatmap::load("assets/beatmap/Shihori - Magic Girl !! (Frostmourne) [Lunatic].osu");
     //let n = 14 as usize;
     //println!("{} {} {}", n, n.to_le(), n.to_be());
+    use game::*;
+    //let m = game::OsruGameMod::new(OsruGameModName::None);
+    
 }
 
 fn _test_concurrency(){

@@ -2,6 +2,8 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
+use crate::global::*;
+
 use std::fs;
 use std::io::BufReader;
 use rodio::source::Source;
@@ -11,10 +13,6 @@ use std::cell::RefCell;
 use std::time::Duration;
 use rodio::Device;
 use std::rc::Rc;
-
-const DEFAULT_MASTER_VOLUME: f32 = 0.50;
-const DEFAULT_TRACK_VOLUME: f32 = 0.50;
-const AUDIO_REFERENCE_POWER: usize = 3000;
 
 pub struct AudioManager{
     _device: Device,
