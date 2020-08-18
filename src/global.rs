@@ -150,7 +150,7 @@ pub struct AnimationTiming {
 }
 
 #[derive(Debug, Clone, Copy, Default, Ord, Eq, PartialOrd, PartialEq)]
-pub struct OsruTime(pub usize);
+pub struct OsruTime(pub usize); //micro seconds
 impl OsruTime {
   pub fn us(us: usize) -> OsruTime {
     OsruTime(us)
@@ -196,6 +196,18 @@ impl ops::Sub for OsruTime {
 
   fn sub(self, rhs: Self) -> Self::Output {
     OsruTime(self.0 - rhs.0)
+  }
+}
+impl ops::Mul for OsruTime {
+  type Output = OsruTime;
+  fn mul(self, rhs: Self) -> Self::Output {
+    OsruTime(self.0 * rhs.0)
+  }
+}
+impl ops::Div for OsruTime {
+  type Output = OsruTime;
+  fn div(self, rhs: Self) -> Self::Output {
+    OsruTime(self.0 / rhs.0)
   }
 }
 
@@ -357,36 +369,82 @@ pub fn mergestr(s1: &str, s2: &str) -> String {
 }
 
 pub fn osru_pixels_to_window(
-  image: &OsruRect, viewport_size: &OsruRect, letterbox: bool,
+  image: &OsruRect, viewport_size: &OsruRect, scale_image: bool,
 ) -> OsruRect {
   let x_ratio = viewport_size.width / DEFAULT_WINDOW_SIZE.0 as f64;
   let y_ratio = viewport_size.height / DEFAULT_WINDOW_SIZE.1 as f64;
 
   let scaling_factor = {
-    if letterbox {
-      if x_ratio > y_ratio {
-        x_ratio
-      } else {
-        y_ratio
-      }
+    if x_ratio > y_ratio {
+      y_ratio
     } else {
-      if x_ratio < y_ratio {
-        x_ratio
-      } else {
-        y_ratio
-      }
+      x_ratio
     }
   };
   //TODO fix letter boxing
+  let mut new_image_width = image.width as f64;
+  let mut new_image_height = image.height as f64;
 
-  let new_width = image.width * scaling_factor;
-  let new_height = image.height * scaling_factor;
+  if scale_image {
+    new_image_width *= scaling_factor;
+    new_image_height *= scaling_factor;
+  }
 
-  let viewport_offset_x = (viewport_size.width - new_width) / 2.0;
-  let viewport_offset_y = (viewport_size.height - new_height) / 2.0;
+  let new_viewport_width = DEFAULT_WINDOW_SIZE.0 as f64 * scaling_factor;
+  let new_viewport_height = DEFAULT_WINDOW_SIZE.1 as f64 * scaling_factor;
 
-  let image_offset_x = image.x + viewport_offset_x;
-  let image_offset_y = image.y + viewport_offset_y;
+  let new_viewport_offset_x = (viewport_size.width - new_viewport_width) / 2.0;
+  let new_viewport_offset_y = (viewport_size.height - new_viewport_height) / 2.0;
 
-  OsruRect::new(image_offset_x, image_offset_y, new_width, new_height)
+  let mut new_image_offset_x = image.x * scaling_factor + new_viewport_offset_x;
+  let mut new_image_offset_y = image.y * scaling_factor + new_viewport_offset_y;
+
+  new_image_offset_x -= new_image_width / 2.0;
+  new_image_offset_y -= new_image_height / 2.0;
+
+  OsruRect::new(new_image_offset_x, new_image_offset_y, new_image_width, new_image_height)
+}
+
+pub fn display_background_image(
+  canvas: &mut sdl2::render::WindowCanvas, texture: &mut sdl2::render::Texture,
+  allow_letterbox: bool,
+) {
+  let mut image_width = texture.query().width as f64;
+  let mut image_height = texture.query().height as f64;
+
+  let viewport_width = canvas.viewport().width() as f64;
+  let viewport_height = canvas.viewport().height() as f64;
+
+  let scaling_factor_x = viewport_width / image_width;
+  let scaling_factor_y = viewport_height / image_height;
+
+  let scaling_factor = {
+    if scaling_factor_x > scaling_factor_y {
+      if allow_letterbox {
+        scaling_factor_y
+      } else {
+        scaling_factor_x
+      }
+    } else {
+      if allow_letterbox {
+        scaling_factor_x
+      } else {
+        scaling_factor_y
+      }
+    }
+  };
+
+  image_width *= scaling_factor;
+  image_height *= scaling_factor;
+
+  let image_offset_x = (viewport_width - image_width) / 2.0;
+  let image_offset_y = (viewport_height - image_height) / 2.0;
+
+  canvas
+    .copy(
+      &texture,
+      None,
+      OsruRect::new(image_offset_x, image_offset_y, image_width, image_height).to_sdl2_rect(),
+    )
+    .unwrap();
 }

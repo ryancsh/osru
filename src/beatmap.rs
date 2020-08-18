@@ -174,7 +174,7 @@ impl Beatmap {
           let combo_colours_to_skip = (type_bitflags & 0b1110000) >> 4;
 
           static animation_timings: AnimationTiming = AnimationTiming {
-            preempt: OsruTime(1000_000),
+            preempt: OsruTime(1_000_000),
             fade_in: OsruTime(500_000),
             timing_great: OsruTime(80_000),
             timing_good: OsruTime(160_000),
@@ -198,6 +198,7 @@ impl Beatmap {
 
               animation_timings: &animation_timings,
               current_time: OsruTime::s(0),
+              current_state: hitobject::HitObjectDrawState::NotYet,
             };
             beatmap.hitobjects.push(Box::new(h));
           } else if type_bitflags & 0b10 == 0b10 {

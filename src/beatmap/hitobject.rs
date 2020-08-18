@@ -8,7 +8,7 @@ use sdl2::{
 
 use std::fmt;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum HitObjectState {
   NotYet,
   Meh,
@@ -17,7 +17,7 @@ pub enum HitObjectState {
   Hit,
   Miss,
 }
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum HitObjectDrawState {
   NotYet,
   Drawing,
@@ -36,6 +36,7 @@ impl fmt::Debug for HitObject {
   }
 }
 
+#[derive(Debug)]
 pub struct HitCircle<'a> {
   pub position: OsruPixels,
   pub time: OsruTime,
@@ -51,10 +52,25 @@ pub struct HitCircle<'a> {
 
   pub animation_timings: &'a AnimationTiming,
   pub current_time: OsruTime,
+  pub current_state: HitObjectDrawState,
 }
 impl<'a> HitObject for HitCircle<'a> {
   fn update(&mut self, current_time: OsruTime) {
     self.current_time.copy(current_time);
+    use HitObjectDrawState::*;
+    let new_state = {
+      if self.current_time + self.animation_timings.preempt < self.time {
+        NotYet
+      } else if self.current_time > self.time + self.animation_timings.timing_meh {
+        Done
+      } else {
+        Drawing
+      }
+    };
+    /*if new_state != self.current_state {
+      println!("{:?} -> {:?}\n{:?}", self.current_state, new_state, self)
+    };*/
+    self.current_state = new_state;
   }
 
   fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> HitObjectDrawState {
@@ -64,7 +80,9 @@ impl<'a> HitObject for HitCircle<'a> {
         if self.current_time + (self.animation_timings.preempt - self.animation_timings.fade_in)
           < self.time
         {
-          u8::MAX / 2
+          let opacity = (self.current_time + self.animation_timings.preempt - self.time)
+            / self.animation_timings.fade_in;
+          (opacity.0 % u8::MAX as usize) as u8
         } else {
           u8::MAX
         }
@@ -77,22 +95,16 @@ impl<'a> HitObject for HitCircle<'a> {
         texture.query().height as f64,
       );
       let viewport =
-        osru_pixels_to_window(&image_rect, &OsruRect::new_from_sdl2_rect(canvas.viewport()), false);
+        osru_pixels_to_window(&image_rect, &OsruRect::new_from_sdl2_rect(canvas.viewport()), true);
+      //canvas.draw_rect(viewport.to_sdl2_rect()).unwrap();
+      //canvas.draw_rect(Rect::new(350, 400, 100, 100)).unwrap();
       canvas.copy(texture, None, viewport.to_sdl2_rect()).unwrap();
-      canvas.viewport();
     }
     state
   }
 
   fn draw_state(&self) -> HitObjectDrawState {
-    use HitObjectDrawState::*;
-    if self.current_time + self.animation_timings.preempt < self.time {
-      NotYet
-    } else if self.time + self.animation_timings.timing_meh > self.current_time {
-      Done
-    } else {
-      Drawing
-    }
+    self.current_state
   }
 
   fn to_string(&self) -> String {

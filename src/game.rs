@@ -41,6 +41,11 @@ impl Game {
 
     let mut texture =
       texture_creator.load_texture(path::Path::new("assets/hitcircle.png")).unwrap();
+    let mut background_texture =
+      texture_creator.load_texture(path::Path::new("assets/beatmap/magic girl.jpg")).unwrap();
+    let mut background_texture2 =
+      texture_creator.load_texture(path::Path::new("assets/black_pixel.png")).unwrap();
+    background_texture2.set_alpha_mod(u8::MAX / 3 * 2);
 
     let (audio_filename, mut b) = Game::start_beatmap(
       OsruGameMode::Standard,
@@ -57,7 +62,6 @@ impl Game {
       timing_meh: OsruTime::ms(240),
     };
 
-    let start_time = SystemTime::now();
     /*
     let mut a = 0;
     let mut run = true;
@@ -97,6 +101,7 @@ impl Game {
         audio_manager.sleep_until_stop(rx);
       }
     });
+
     'wait_for_audio: loop {
       match ry.recv() {
         Ok(AudioMessage::Ready) => break 'wait_for_audio,
@@ -104,6 +109,22 @@ impl Game {
         _ => (),
       }
     }
+
+    let start_time_std = SystemTime::now();
+    /*
+    let start_time_sdl = 0;
+    for ev in event_pump.wait_iter(){
+      use sdl2::event::Event::*;
+      match ev{
+        MouseMotion{timestamp: sdl_t, ..} =>{
+          start_time_sdl = sdl_t;
+          start_time_std = SystemTime::now();
+        }
+        _ => (),
+      }
+    }
+    */
+
     while run {
       use sdl2::event::Event;
       for ev in event_pump.poll_iter() {
@@ -116,10 +137,26 @@ impl Game {
           _ => {}
         }
       }
-      let current_time = SystemTime::now().duration_since(start_time).unwrap();
+      let current_time = SystemTime::now().duration_since(start_time_std).unwrap();
       let current_time = OsruTime::from_duration(current_time);
+      let background_viewport = OsruRect::new(
+        0.0,
+        0.0,
+        background_texture.query().width as f64,
+        background_texture.query().height as f64,
+      );
+      let background_viewport = osru_pixels_to_window(
+        &background_viewport,
+        &OsruRect::new_from_sdl2_rect(canvas.viewport()),
+        true,
+      );
       canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
       canvas.clear();
+      canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 64));
+      display_background_image(&mut canvas, &mut background_texture, false);
+      canvas.copy(&background_texture2, None, None).unwrap();
+      //println!("backgroudn viewport {:?}", background_viewport.to_sdl2_rect());
+      canvas.set_draw_color(pixels::Color::RGBA(255, 255, 255, 255));
 
       let mut drawed = false;
       'drawing_loop: for i in hit_object_start_index..b.hitobjects.len() {
@@ -148,8 +185,11 @@ impl Game {
       num_frames += 1;
       //println!("frame number {}", num_frames);
     }
-    let total_time = SystemTime::now().duration_since(start_time).unwrap().as_millis() as f64;
+    let total_time = SystemTime::now().duration_since(start_time_std).unwrap().as_millis() as f64;
     println!("avg fps {}", num_frames as f64 / total_time * 1000.0);
+    match tx.send(AudioMessage::Stop) {
+      _ => (),
+    }
     t.join().unwrap();
   }
 
