@@ -1,16 +1,13 @@
 # osru
 ***Rust rewrite of osu!***
 
-* The issue with osu! stable: Everything happens in one thread so if you lock your fps at 60 is terrible for your accuracy.
-* The issue with osu! lazer: Too many animations, also written in C# which is GC'd. Garbage Collection in my opinion in games is a terrible idea, the reason being inconsistent performance. You can drop a frame out of nowhere if the GC decides to do its thing at a bad time.
+**Disclaimer**
+I'm not in any way affiliated with osu! in any way, except for the fact that I play the game and like it a lot.
 
-My attempt is to write a port that avoids the main issues with both osu!stable and osu!lazer.
-I chose Rust because is not GC'd and actually makes it easy to write threaded applications. It's also a very interesting language in its own right.
-
-The current idea is to have 3 threads:
-1) The actual game loop where all the calculations about hit timings happen
-2) The render thread, handles all the stuff that should go on the screen. This thread also currently handles event polling because rust-SDL2 doesn't support polling for events on another thread.
-3) The audio thread, plays all the sounds.
+**Why even bother?**
+There's not much point to it, but I'm hoping to be able to figure out how to write responsive and performant applications using Rust, and writing an osu port seemed like a decent idea, at least at the start.
+Osu is a game where timing matters a lot, any frame skips or inconsistency in timing becomes very noticeable really quickly. At Overall Difficulty 10, your precision has to be within 19.5 ms of the theoretical perfect timing.
+I say "at the start" because I figured out along the way that it's actually way harder to write something like this from scratch than I anticipated. I don't plan on giving up though.
 
 ### Current target
 * Getting osu standard working
@@ -21,6 +18,7 @@ The current idea is to have 3 threads:
 * Online stuff
 * Skins
 * Beatmap Editor
+* Pretty animations
 
 ### No plans to implement:
 * osu taiko
