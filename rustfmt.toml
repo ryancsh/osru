@@ -3,13 +3,13 @@ use_field_init_shorthand=true
 fn_args_layout="Compressed"
 use_small_heuristics="Max"
 use_try_shorthand=true
+max_width=110
 
 #unstable_features=true
 #blank_lines_lower_bound=0
 #blank_lines_upper_bound=2
 #wrap_comments=true
 #comment_width=100
-#max_width=100
 #condense_wildcard_suffixes=true
 #control_brace_style="ClosingNextLine"
 #fn_single_line=true

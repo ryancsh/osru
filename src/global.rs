@@ -3,27 +3,37 @@
 #[allow(non_camel_case_types)]
 pub enum SampleSetType{ NoCustom, normal, soft, drum}
 */
-
+use enum_iterator::IntoEnumIterator;
 use std::ops;
+use std::time::{Duration, SystemTime};
 
 pub const DEFAULT_MASTER_VOLUME: f32 = 0.40;
 pub const DEFAULT_TRACK_VOLUME: f32 = 0.40;
 pub const AUDIO_REFERENCE_POWER: usize = 4000;
+pub const AUDIO_NORMALIZE: bool = true;
 
-pub const TIMING_WINDOW_GREAT: OsruTime = OsruTime(79_500);
-pub const TIMING_WINDOW_GREAT_MULTIPLIER: OsruTime = OsruTime(6_000);
-pub const TIMING_WINDOW_GOOD: OsruTime = OsruTime(139_500);
-pub const TIMING_WINDOW_GOOD_MULTIPLIER: OsruTime = OsruTime(8_000);
-pub const TIMING_WINDOW_MEH: OsruTime = OsruTime(199_500);
-pub const TIMING_WINDOW_MEH_MULTIPLIER: OsruTime = OsruTime(10_000);
+pub const INTERPOLATE_MOUSE_POSITION: bool = false;
+
+pub const TIMING_WINDOW_GREAT: Duration = Duration::from_micros(79_500);
+pub const TIMING_WINDOW_GREAT_MULTIPLIER: Duration = Duration::from_micros(6_000);
+pub const TIMING_WINDOW_GOOD: Duration = Duration::from_micros(139_500);
+pub const TIMING_WINDOW_GOOD_MULTIPLIER: Duration = Duration::from_micros(8_000);
+pub const TIMING_WINDOW_MEH: Duration = Duration::from_micros(199_500);
+pub const TIMING_WINDOW_MEH_MULTIPLIER: Duration = Duration::from_micros(10_000);
 
 pub const DEFAULT_WINDOW_SIZE: (usize, usize) = (640, 480);
 
-#[derive(Debug, Clone, Copy)]
-pub struct Colour<T>(pub T, pub T, pub T, pub T);
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
+pub struct Colour<T> {
+  pub r: T,
+  pub g: T,
+  pub b: T,
+  pub a: T,
+}
+
+#[derive(Debug, Clone)]
 pub struct Bitflags(pub usize);
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Volume(pub f32);
 impl ops::Mul for Volume {
   type Output = Volume;
@@ -32,58 +42,54 @@ impl ops::Mul for Volume {
     Volume(((rhs.0 - 0.5).abs() + 1.0) * self.0)
   }
 }
+impl Default for Volume {
+  fn default() -> Volume {
+    Volume(0.5)
+  }
+}
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, IntoEnumIterator)]
 pub enum OsruGameMode {
   Catch,
   Standard,
   Mania,
   Taiko,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, IntoEnumIterator)]
 pub enum OsruCurveType {
   Bezier,
   CentripetalCatmullRom,
   Linear,
   PerfectCircle,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, IntoEnumIterator)]
 pub enum OsruHitSuccess {
   Great,
   Good,
   Meh,
   Miss,
 }
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
-pub enum OsruGameModName {
-  None,
-  Easy,
-  HardRock,
-  DoubleTime,
-  HalfTime,
-  NoFail,
-  SuddenDeath,
-  Perfect,
-  Hidden,
-  FlashLight,
-  //Scoring
-  ScoreOsru,
-  ScoreV1,
-  ScoreV2,
-  //Special
-  Relax,
-  AutoPilot,
-  SpunOut,
-  Auto,
+
+#[derive(Debug, Clone, Default)]
+pub struct OsruPixel(pub f64);
+#[derive(Debug, Clone, Default)]
+pub struct OsruPixels(pub f64, pub f64);
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct Pixels(pub f64, pub f64);
+impl ops::Add for Pixels {
+  type Output = Pixels;
+  fn add(self, rhs: Self) -> Self::Output {
+    Pixels(self.0 + rhs.0, self.1 + rhs.1)
+  }
+}
+impl ops::Sub for Pixels {
+  type Output = Pixels;
+  fn sub(self, rhs: Self) -> Self::Output {
+    Pixels(self.0 - rhs.0, self.1 - rhs.1)
+  }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct OsruPixel(pub f64);
-#[derive(Debug, Clone, Copy)]
-pub struct OsruPixels(pub f64, pub f64);
-#[derive(Debug, Clone, Copy)]
-pub struct Pixels(pub usize, pub usize);
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct OsruRect {
   pub x: f64,
   pub y: f64,
@@ -114,7 +120,7 @@ impl OsruRect {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Default)]
 pub struct OsruHitSounds {
   pub normal: bool,
   pub whistle: bool,
@@ -133,82 +139,20 @@ impl OsruHitSounds {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct OsruOD(pub f64);
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct OsruAR(pub f64);
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct OsruCS(pub f64);
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct AnimationTiming {
-  pub preempt: OsruTime,
-  pub fade_in: OsruTime,
-  pub timing_great: OsruTime,
-  pub timing_good: OsruTime,
-  pub timing_meh: OsruTime,
-}
-
-#[derive(Debug, Clone, Copy, Default, Ord, Eq, PartialOrd, PartialEq)]
-pub struct OsruTime(pub usize); //micro seconds
-impl OsruTime {
-  pub fn us(us: usize) -> OsruTime {
-    OsruTime(us)
-  }
-
-  pub fn ms(ms: usize) -> OsruTime {
-    OsruTime::us(ms * 1000)
-  }
-
-  pub fn s(s: usize) -> OsruTime {
-    OsruTime::ms(s * 1000)
-  }
-
-  pub fn us_f(us: f64) -> OsruTime {
-    OsruTime(us as usize)
-  }
-
-  pub fn ms_f(ms: f64) -> OsruTime {
-    OsruTime::us_f(ms * 1000.0)
-  }
-
-  pub fn s_f(s: f64) -> OsruTime {
-    OsruTime::ms_f(s * 1000.0)
-  }
-
-  pub fn from_duration(d: std::time::Duration) -> OsruTime {
-    OsruTime::us(d.as_micros() as usize)
-  }
-
-  pub fn copy(&mut self, other: OsruTime) {
-    self.0 = other.0
-  }
-}
-impl ops::Add for OsruTime {
-  type Output = OsruTime;
-
-  fn add(self, rhs: Self) -> Self::Output {
-    OsruTime(self.0 + rhs.0)
-  }
-}
-impl ops::Sub for OsruTime {
-  type Output = OsruTime;
-
-  fn sub(self, rhs: Self) -> Self::Output {
-    OsruTime(self.0 - rhs.0)
-  }
-}
-impl ops::Mul for OsruTime {
-  type Output = OsruTime;
-  fn mul(self, rhs: Self) -> Self::Output {
-    OsruTime(self.0 * rhs.0)
-  }
-}
-impl ops::Div for OsruTime {
-  type Output = OsruTime;
-  fn div(self, rhs: Self) -> Self::Output {
-    OsruTime(self.0 / rhs.0)
-  }
+  pub preempt: Duration,
+  pub fade_in: Duration,
+  pub timing_great: Duration,
+  pub timing_good: Duration,
+  pub timing_meh: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -269,9 +213,7 @@ impl OsruType {
     }
   }
 
-  pub fn parse_type(
-    value: &str, old_value: &OsruType, separator: Option<&str>,
-  ) -> Option<OsruType> {
+  pub fn parse_type(value: &str, old_value: &OsruType, separator: Option<&str>) -> Option<OsruType> {
     use OsruType::*;
 
     let separator = match separator {
@@ -368,9 +310,7 @@ pub fn mergestr(s1: &str, s2: &str) -> String {
   result
 }
 
-pub fn osru_pixels_to_window(
-  image: &OsruRect, viewport_size: &OsruRect, scale_image: bool,
-) -> OsruRect {
+pub fn osru_pixels_to_window(image: &OsruRect, viewport_size: &OsruRect, scale_image: bool) -> OsruRect {
   let x_ratio = viewport_size.width / DEFAULT_WINDOW_SIZE.0 as f64;
   let y_ratio = viewport_size.height / DEFAULT_WINDOW_SIZE.1 as f64;
 
@@ -405,9 +345,41 @@ pub fn osru_pixels_to_window(
   OsruRect::new(new_image_offset_x, new_image_offset_y, new_image_width, new_image_height)
 }
 
+pub fn convert_osru_coordinates(osru_coord: &OsruPixels, viewport_size: &OsruRect) -> Pixels {
+  let x_ratio = viewport_size.width / DEFAULT_WINDOW_SIZE.0 as f64;
+  let y_ratio = viewport_size.height / DEFAULT_WINDOW_SIZE.1 as f64;
+  let scaling_factor = {
+    if x_ratio > y_ratio {
+      y_ratio
+    } else {
+      x_ratio
+    }
+  };
+  let new_viewport_width = DEFAULT_WINDOW_SIZE.0 as f64 * scaling_factor;
+  let new_viewport_height = DEFAULT_WINDOW_SIZE.1 as f64 * scaling_factor;
+
+  let new_viewport_offset_x = (viewport_size.width - new_viewport_width) / 2.0;
+  let new_viewport_offset_y = (viewport_size.height - new_viewport_height) / 2.0;
+
+  let new_coord_x = osru_coord.0 * scaling_factor + new_viewport_offset_x;
+  let new_coord_y = osru_coord.1 * scaling_factor + new_viewport_offset_y;
+
+  Pixels(new_coord_x, new_coord_y)
+}
+
+pub fn is_mouse_pos_in_range(circle_pos: &Pixels, mouse_pos: &Pixels, radius: f64) -> bool {
+  let x_sq = (circle_pos.0 - mouse_pos.0).powi(2);
+  let y_sq = (circle_pos.1 - mouse_pos.1).powi(2);
+  let r_sq = radius * radius;
+  if r_sq >= x_sq + y_sq {
+    true
+  } else {
+    false
+  }
+}
+
 pub fn display_background_image(
-  canvas: &mut sdl2::render::WindowCanvas, texture: &mut sdl2::render::Texture,
-  allow_letterbox: bool,
+  canvas: &mut sdl2::render::WindowCanvas, texture: &mut sdl2::render::Texture, allow_letterbox: bool,
 ) {
   let mut image_width = texture.query().width as f64;
   let mut image_height = texture.query().height as f64;

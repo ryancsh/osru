@@ -5,13 +5,18 @@ pub mod hitobject;
 
 use hitobject::*;
 
+use std::time::{Duration, SystemTime};
 use std::{any, clone, cmp, collections::HashMap, fmt, fs, slice};
+
+extern crate enum_iterator;
+use enum_iterator::IntoEnumIterator;
 
 pub struct Beatmap {
   pub settings: HashMap<BeatmapSettings, OsruType>,
 
   pub timing_points: Vec<TimingPoint>,
   pub hitobjects: Vec<Box<dyn HitObject>>,
+  pub hitobject_start_index: usize,
   /*
   pub event_backgrounds : Vec<EventBackground>,
   pub event_videos: Vec<EventVideo>,
@@ -81,6 +86,7 @@ impl Beatmap {
 
       timing_points: vec![],
       hitobjects: vec![],
+      hitobject_start_index: 0,
       /*
       event_backgrounds: vec![],
       event_videos: vec![],
@@ -106,22 +112,18 @@ impl Beatmap {
         let line = line.trim_start_matches("[");
         let line = line.trim_end_matches("]");
 
-        for v in BeatmapSection::iter() {
+        for v in BeatmapSection::into_enum_iter() {
           if line == v.to_string() {
-            section = *v;
+            section = v;
             continue 'next_line;
           }
         }
-      } else if section == General
-        || section == Editor
-        || section == Metadata
-        || section == Difficulty
-      {
+      } else if section == General || section == Editor || section == Metadata || section == Difficulty {
         if let Some((k, value)) = parse_key_value(line, ":") {
           let mut key = BeatmapSettings::None;
-          for val in BeatmapSettings::iter() {
+          for val in BeatmapSettings::into_enum_iter() {
             if val.to_string() == k {
-              key = *val;
+              key = val;
             }
           }
           if let Some(old_value) = beatmap.settings.get(&key) {
@@ -173,32 +175,15 @@ impl Beatmap {
           let new_combo = type_bitflags & 0b100 == 0b100;
           let combo_colours_to_skip = (type_bitflags & 0b1110000) >> 4;
 
-          static animation_timings: AnimationTiming = AnimationTiming {
-            preempt: OsruTime(1_000_000),
-            fade_in: OsruTime(500_000),
-            timing_great: OsruTime(80_000),
-            timing_good: OsruTime(160_000),
-            timing_meh: OsruTime(240_000),
-          };
-
           if type_bitflags & 0b1 == 0b1 {
             //hitcircle
             let h = HitCircle {
               position: OsruPixels(x, y),
-              time: OsruTime::ms(time as usize),
+              time: Duration::from_millis(time as u64),
               new_combo,
               combo_colours_to_skip,
               hitsounds,
-
-              hitsample_set: 0,
-              hitsample_additional_set: 0,
-              hitsample_index: 0,
-              hitsample_volume: Volume(0.5),
-              hitsample_filename: nstr(""),
-
-              animation_timings: &animation_timings,
-              current_time: OsruTime::s(0),
-              current_state: hitobject::HitObjectDrawState::NotYet,
+              ..Default::default()
             };
             beatmap.hitobjects.push(Box::new(h));
           } else if type_bitflags & 0b10 == 0b10 {
@@ -246,6 +231,16 @@ impl Beatmap {
               }
             }
 
+            let h = HitCircle {
+              position: OsruPixels(x, y),
+              time: Duration::from_millis(time as u64),
+              new_combo,
+              combo_colours_to_skip,
+              hitsounds,
+              ..Default::default()
+            };
+            beatmap.hitobjects.push(Box::new(h));
+
           //println!("slider {:?}", line);
           } else if type_bitflags & 0b1000 == 0b1000 {
             // TODO: spiner
@@ -278,10 +273,9 @@ impl Beatmap {
   }
 }
 
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, IntoEnumIterator)]
 pub enum BeatmapSettings {
   None,
-
   //General
   AudioFilename,
   AudioLeadIn,
@@ -330,58 +324,7 @@ pub enum BeatmapSettings {
   SliderMultiplier,
   SliderTickRate,
 }
-impl BeatmapSettings {
-  fn iter() -> slice::Iter<'static, BeatmapSettings> {
-    use BeatmapSettings::*;
-    static VALUES: [BeatmapSettings; 40] = [
-      //General
-      AudioFilename,
-      AudioLeadIn,
-      AudioHash,
-      PreviewTime,
-      Countdown,
-      SampleSet,
-      StackLeniency,
-      Mode,
-      LetterboxInBreaks,
-      StoryFireInFront,
-      UseSkinSprites,
-      AlwaysShowPlayfield,
-      OverlayPosition,
-      SkinPreference,
-      EpilepsyWarning,
-      CountdownOffset,
-      SpecialStyle,
-      WidescreenStoryboard,
-      SamplesMatchPlaybackRate,
-      //Editor
-      Bookmarks,
-      DistanceSpacing,
-      BeatDivisor,
-      GridSize,
-      TimelineZoom,
-      // Metadata
-      Title,
-      TitleUnicode,
-      Artist,
-      ArtistUnicode,
-      Creator,
-      Version,
-      Source,
-      Tags,
-      BeatmapID,
-      BeatmapSetID,
-      // Difficulty
-      HPDrainRate,
-      CircleSize,
-      OverallDifficulty,
-      ApproachRate,
-      SliderMultiplier,
-      SliderTickRate,
-    ];
-    VALUES.iter()
-  }
-}
+
 impl fmt::Display for BeatmapSettings {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "{:?}", self)
@@ -406,7 +349,7 @@ pub struct BeatmapColour {
   slider_border_colour: Colour<u8>,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, IntoEnumIterator)]
 pub enum BeatmapSection {
   General,
   Editor,
@@ -420,13 +363,6 @@ pub enum BeatmapSection {
 impl BeatmapSection {
   pub fn eq(&self, other: &str) -> bool {
     self.to_string() == other
-  }
-
-  pub fn iter() -> slice::Iter<'static, BeatmapSection> {
-    use BeatmapSection::*;
-    static VALUES: [BeatmapSection; 8] =
-      [General, Editor, Metadata, Difficulty, Events, TimingPoints, Colours, HitObjects];
-    VALUES.iter()
   }
 }
 impl fmt::Display for BeatmapSection {

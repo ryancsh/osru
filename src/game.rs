@@ -1,6 +1,9 @@
 extern crate sdl2;
 
 use crate::global::*;
+use crate::input;
+use hitobject::{DrawState, UpdateResult};
+use input::{InputSnapshot, InputUpdate};
 
 use crate::{
   audio::{self, *},
@@ -13,80 +16,32 @@ use std::sync::mpsc;
 use std::{
   cmp,
   collections::HashSet,
-  hash, path, slice,
-  time::{self, SystemTime},
+  hash, path, slice, thread,
+  time::{self, Duration, Instant},
 };
 
 pub struct Game {}
 impl Game {
   pub fn start() {
-    let sdl_context = sdl2::init().unwrap();
-    let mut event_pump = sdl_context.event_pump().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
-    let window = video_subsystem
-      .window("Osru", DEFAULT_WINDOW_SIZE.0 as u32, DEFAULT_WINDOW_SIZE.1 as u32)
-      .allow_highdpi()
-      .position_centered()
-      .build()
-      .unwrap();
-
-    let mut canvas = window.into_canvas().build().unwrap();
-    canvas.window_mut().set_fullscreen(Desktop).unwrap();
-
-    canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
-    canvas.clear();
-    canvas.present();
-
-    let texture_creator = canvas.texture_creator();
-
-    let mut texture =
-      texture_creator.load_texture(path::Path::new("assets/hitcircle.png")).unwrap();
-    let mut background_texture =
-      texture_creator.load_texture(path::Path::new("assets/beatmap/magic girl.jpg")).unwrap();
-    let mut background_texture2 =
-      texture_creator.load_texture(path::Path::new("assets/black_pixel.png")).unwrap();
-    background_texture2.set_alpha_mod(u8::MAX / 3 * 2);
-
-    let (audio_filename, mut b) = Game::start_beatmap(
-      OsruGameMode::Standard,
-      "assets/beatmap/Shihori - Magic Girl !! (Frostmourne) [Lunatic].osu",
-    );
+    let animation_timings: AnimationTiming = AnimationTiming {
+      preempt: Duration::from_millis(500),
+      fade_in: Duration::from_millis(250),
+      timing_great: TIMING_WINDOW_GREAT,
+      timing_good: TIMING_WINDOW_GOOD,
+      timing_meh: TIMING_WINDOW_MEH,
+    };
 
     let audio = true;
 
-    let animation_timings = AnimationTiming {
-      preempt: OsruTime::s(2),
-      fade_in: OsruTime::s(1),
-      timing_great: OsruTime::ms(80),
-      timing_good: OsruTime::ms(160),
-      timing_meh: OsruTime::ms(240),
-    };
-
-    /*
-    let mut a = 0;
-    let mut run = true;
-    let mut h = hitobject::HitCircle {
-        position: OsruPixels(320.0, 200.0),
-        time: OsruTime::s(3),
-        new_combo: false,
-        combo_colours_to_skip: 0,
-        hitsounds: OsruHitSounds::from_bitflags(Bitflags(0)),
-
-        hitsample_set: 0,
-        hitsample_additional_set: 0,
-        hitsample_index: 0,
-        hitsample_volume: Volume(0.0),
-        hitsample_filename: String::from(""),
-
-        animation_timings: &animation_timings,
-        current_time: OsruTime::s(0),
-        texture: &texture,
-    };
-    let mut h: Box<dyn hitobject::HitObject> = Box::new(h);
-    */
     let mut run = true;
     let mut num_frames: u64 = 0;
-    let mut hit_object_start_index = 0;
+
+    // start audio
+    let (audio_filename, mut b) = Game::start_beatmap(
+      OsruGameMode::Standard,
+      "assets/beatmap/Shihori - Magic Girl !! (Frostmourne) [Hard].osu",
+    );
+
     println!("{}", b.hitobjects.len());
 
     let (tx, rx) = mpsc::channel();
@@ -97,11 +52,46 @@ impl Game {
         let mut audio_manager = audio::AudioManager::new();
         audio_manager.add_source(&audio_filename);
         ty.send(AudioMessage::Ready).unwrap();
-        audio_manager.play_source(0);
-        audio_manager.sleep_until_stop(rx);
+        audio_manager.wait(rx);
       }
     });
 
+    //graphics
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+
+    let mut canvas = {
+      let window = video_subsystem
+        .window("Osru", DEFAULT_WINDOW_SIZE.0 as u32, DEFAULT_WINDOW_SIZE.1 as u32)
+        .allow_highdpi()
+        .position_centered()
+        .build()
+        .unwrap();
+      window.into_canvas().build().unwrap()
+    };
+    canvas.window_mut().set_fullscreen(Desktop).unwrap();
+    canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
+    canvas.clear();
+    canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+    canvas.present();
+
+    let texture_creator = canvas.texture_creator();
+
+    let mut texture = texture_creator.load_texture(path::Path::new("assets/hitcircle.png")).unwrap();
+    let mut background_texture =
+      texture_creator.load_texture(path::Path::new("assets/beatmap/magic girl.jpg")).unwrap();
+
+    let mut background_texture2 =
+      texture_creator.load_texture(path::Path::new("assets/black_pixel.png")).unwrap();
+    background_texture2.set_alpha_mod(u8::MAX / 4 * 3);
+
+    //input
+    let mut input_manager = input::InputManager::new(sdl_context.event_pump().unwrap());
+
+    // other stuff
+    let mut hitobj_start_i = 0;
+
+    // wait for audio
     'wait_for_audio: loop {
       match ry.recv() {
         Ok(AudioMessage::Ready) => break 'wait_for_audio,
@@ -110,85 +100,129 @@ impl Game {
       }
     }
 
-    let start_time_std = SystemTime::now();
-    /*
-    let start_time_sdl = 0;
-    for ev in event_pump.wait_iter(){
-      use sdl2::event::Event::*;
-      match ev{
-        MouseMotion{timestamp: sdl_t, ..} =>{
-          start_time_sdl = sdl_t;
-          start_time_std = SystemTime::now();
-        }
-        _ => (),
-      }
-    }
-    */
+    // start game
+    tx.send(AudioMessage::Play(0)).unwrap();
+    input_manager.start_timer();
 
     while run {
-      use sdl2::event::Event;
-      for ev in event_pump.poll_iter() {
-        match ev {
-          Event::Quit { .. }
-          | Event::KeyDown { keycode: Some(sdl2::keyboard::Keycode::Escape), .. } => {
-            run = false;
-            tx.send(AudioMessage::Stop).unwrap();
+      {
+        //draw background
+        let background_viewport = OsruRect::new(
+          0.0,
+          0.0,
+          background_texture.query().width as f64,
+          background_texture.query().height as f64,
+        );
+        let background_viewport =
+          osru_pixels_to_window(&background_viewport, &OsruRect::new_from_sdl2_rect(canvas.viewport()), true);
+        canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
+        canvas.clear();
+        display_background_image(&mut canvas, &mut background_texture, false);
+        canvas.copy(&background_texture2, None, None).unwrap();
+        canvas.set_draw_color(pixels::Color::RGBA(255, 255, 255, 255));
+      }
+
+      // update
+      let viewport_size = OsruRect::new_from_sdl2_rect(canvas.viewport());
+      'nextUpdate: while let Some(update) = input_manager.next_update() {
+        println!("update {:?}", update);
+        for i in hitobj_start_i..b.hitobjects.len() {
+          println!("hitobj index {}", i);
+          let hitobj = b.hitobjects.get_mut(i).unwrap();
+          let update_result = hitobj.update(&update, &animation_timings, &viewport_size);
+          if update_result == UpdateResult::Success || hitobj.draw_state() == DrawState::NotYet {
+            continue 'nextUpdate;
           }
-          _ => {}
         }
       }
-      let current_time = SystemTime::now().duration_since(start_time_std).unwrap();
-      let current_time = OsruTime::from_duration(current_time);
-      let background_viewport = OsruRect::new(
-        0.0,
-        0.0,
-        background_texture.query().width as f64,
-        background_texture.query().height as f64,
-      );
-      let background_viewport = osru_pixels_to_window(
-        &background_viewport,
-        &OsruRect::new_from_sdl2_rect(canvas.viewport()),
-        true,
-      );
-      canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
-      canvas.clear();
-      canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 64));
-      display_background_image(&mut canvas, &mut background_texture, false);
-      canvas.copy(&background_texture2, None, None).unwrap();
-      //println!("backgroudn viewport {:?}", background_viewport.to_sdl2_rect());
-      canvas.set_draw_color(pixels::Color::RGBA(255, 255, 255, 255));
-
-      let mut drawed = false;
-      'drawing_loop: for i in hit_object_start_index..b.hitobjects.len() {
-        if let Some(h) = b.hitobjects.get_mut(i) {
-          use hitobject::HitObjectDrawState::*;
-          h.update(current_time);
-          match h.draw(&mut canvas, &mut texture) {
-            NotYet => {
-              drawed = true;
-              break 'drawing_loop;
-            }
-            Done => {
-              if hit_object_start_index <= i {
-                hit_object_start_index = i;
-              }
-            }
-            Drawing => {
-              drawed = true;
-            }
+      {
+        let time = input_manager.reference_time().elapsed_sys_time(Instant::now());
+        let mut snap = InputSnapshot::default();
+        snap.time = time;
+        let update = InputUpdate::new(snap.clone(), snap);
+        'update_time: for i in hitobj_start_i .. b.hitobjects.len(){
+          let h = b.hitobjects.get_mut(i).unwrap();
+          h.update(&update, &animation_timings, &viewport_size);
+          if h.draw_state() == DrawState::NotYet{
+            break 'update_time;
           }
+        }
+      }
+      
+
+      if !input_manager.is_running() {
+        tx.send(AudioMessage::Stop).unwrap_or(());
+        run = false;
+      }
+
+      let mut start_i = None;
+      '_drawing_loop: for i in hitobj_start_i..b.hitobjects.len() {
+        use hitobject::DrawState::*;
+        let hitobj = b.hitobjects.get(i).unwrap();
+        match hitobj.draw_state() {
+          NotYet => {
+            if start_i == None {
+              start_i = Some(i)
+            }
+            break '_drawing_loop;
+          }
+          Drawing => {
+            if start_i == None {
+              start_i = Some(i)
+            }
+            hitobj.draw(&mut canvas, &mut texture);
+          }
+          _ => (),
+        }
+      }
+
+      {
+        //draw keypresses
+        let snapshot = input_manager.last_snapshot();
+        canvas.set_draw_color(pixels::Color::RGBA(255, 255, 255, u8::MAX / 2));
+        if snapshot.K1() {
+          canvas.fill_rect(sdl2::rect::Rect::new(2304, 656, 128, 128)).unwrap();
+        }
+        if snapshot.K2() {
+          canvas.fill_rect(sdl2::rect::Rect::new(2304, 784, 128, 128)).unwrap();
         }
       }
 
       canvas.present();
-      run = run && drawed;
       num_frames += 1;
-      //println!("frame number {}", num_frames);
+
+      if let Some(i) = start_i {
+        hitobj_start_i = i;
+      } else {
+        run = false
+      }
+      if !run {
+        tx.send(AudioMessage::Done).unwrap_or(());
+      }
     }
-    let total_time = SystemTime::now().duration_since(start_time_std).unwrap().as_millis() as f64;
+    let total_time = input_manager.reference_time().elapsed_sys_time(Instant::now()).as_millis() as f64;
     println!("avg fps {}", num_frames as f64 / total_time * 1000.0);
-    match tx.send(AudioMessage::Stop) {
-      _ => (),
+    tx.send(AudioMessage::Done).unwrap_or(());
+    {
+      use hitobject::HitSuccess::*;
+      let mut num_great = 0;
+      let mut num_good = 0;
+      let mut num_meh = 0;
+      let mut num_miss = 0;
+      let mut num_unknown = 0;
+      for hitobj in b.hitobjects {
+        match hitobj.hit_success() {
+          Great => num_great += 1,
+          Good => num_good += 1,
+          Meh => num_meh += 1,
+          Miss => num_miss += 1,
+          Unknown => num_unknown += 1,
+        }
+      }
+      println!(
+        "Great: {}, Good: {}, Meh: {}, Miss: {}, Unknown: {}",
+        num_great, num_good, num_meh, num_miss, num_unknown
+      );
     }
     t.join().unwrap();
   }
@@ -206,164 +240,8 @@ impl Game {
       Option::None => String::from(""),
     };
     let audio_filename = mergestr(&parent_dir, &audio_filename);
-    //println!("{}\n{}", parent_dir, audio_filename);
 
     //audio_manager.sleep_until_end();
     (audio_filename, b)
   }
 }
-
-#[derive(Debug, Clone)]
-pub struct OsruGameModsActive {
-  mods: HashSet<OsruGameMod>,
-}
-impl OsruGameModsActive {
-  pub fn new() -> OsruGameModsActive {
-    OsruGameModsActive { mods: HashSet::new() }
-  }
-
-  pub fn od_multiplier(&self) -> f64 {
-    let mut od_mul = 1.0;
-    for game_mod in self.mods.iter() {
-      od_mul *= game_mod.od_multiplier;
-    }
-    if od_mul > 10.0 {
-      10.0
-    } else {
-      od_mul
-    }
-  }
-
-  // TODO: perceived_od_mul()
-  pub fn ar_multiplier(&self) -> f64 {
-    let mut ar_mul = 1.0;
-    for game_mod in self.mods.iter() {
-      ar_mul *= game_mod.ar_multiplier;
-    }
-    if ar_mul > 10.0 {
-      10.0
-    } else {
-      ar_mul
-    }
-  }
-
-  pub fn hit_timing_window(&self, hit_success: OsruHitSuccess, beatmap_od: OsruOD) -> OsruTime {
-    let (base_timing, multiplier) = match hit_success {
-      OsruHitSuccess::Great => (TIMING_WINDOW_GREAT, TIMING_WINDOW_GREAT_MULTIPLIER),
-      OsruHitSuccess::Good => (TIMING_WINDOW_GOOD, TIMING_WINDOW_GOOD_MULTIPLIER),
-      OsruHitSuccess::Meh => (TIMING_WINDOW_MEH, TIMING_WINDOW_MEH_MULTIPLIER),
-      OsruHitSuccess::Miss => panic![],
-    };
-    let od_multiplier = self.od_multiplier();
-    base_timing - OsruTime::us_f(self.od_multiplier() * multiplier.0 as f64 * beatmap_od.0)
-  }
-
-  pub fn preempt_time(&self, beatmap_ar: OsruAR) -> OsruTime {
-    if beatmap_ar.0 == 5.0 {
-      OsruTime::ms(1200)
-    } else if beatmap_ar.0 < 5.0 {
-      OsruTime::ms_f(1200.0 + 600.0 * (5.0 - beatmap_ar.0 * self.ar_multiplier()) / 5.0)
-    } else {
-      OsruTime::ms_f(1200.0 - 750.0 * (beatmap_ar.0 * self.ar_multiplier() - 5.0) / 5.0)
-    }
-  }
-
-  pub fn fade_in_time(&self, beatmap_ar: OsruAR) -> OsruTime {
-    if beatmap_ar.0 == 5.0 {
-      OsruTime::ms(800)
-    } else if beatmap_ar.0 < 5.0 {
-      OsruTime::ms_f(800.0 + 400.0 * (5.0 - beatmap_ar.0 * self.ar_multiplier()) / 5.0)
-    } else {
-      OsruTime::ms_f(800.0 - 500.0 * (beatmap_ar.0 * self.ar_multiplier() - 5.0) / 5.0)
-    }
-  }
-
-  pub fn enable_game_mod(&mut self, new_mod: OsruGameModName) {
-    let mut to_remove = vec![];
-    let new_mod = OsruGameMod::new(new_mod);
-    {
-      for m in self.mods.iter() {
-        if new_mod.eq(m) {
-          return;
-        }
-        for exclude in m.exclusive() {
-          if new_mod.name().eq(exclude) {
-            to_remove.push(OsruGameMod::new(*exclude));
-          }
-        }
-      }
-    }
-
-    for m in to_remove.iter() {
-      self.mods.remove(m);
-    }
-    self.mods.insert(new_mod);
-  }
-
-  pub fn disable_game_mod(&mut self, mod_to_disable: OsruGameModName) {
-    let mod_to_disable = OsruGameMod::new(mod_to_disable);
-    self.mods.remove(&mod_to_disable);
-  }
-}
-
-#[derive(Debug, Clone)]
-pub struct OsruGameMod {
-  game_mod_name: OsruGameModName,
-  exclusive: Vec<OsruGameModName>,
-
-  ar_multiplier: f64,
-  od_multiplier: f64,
-  cs_multiplier: f64,
-}
-impl OsruGameMod {
-  pub fn new(name: OsruGameModName) -> OsruGameMod {
-    use OsruGameModName::*;
-    let mut result = OsruGameMod::default();
-    result.game_mod_name = name;
-    match name {
-      Easy => {
-        result.exclusive.push(HardRock);
-        result.ar_multiplier = 0.5;
-        result.od_multiplier = 0.5;
-      }
-      HardRock => {
-        result.exclusive.push(Easy);
-        result.ar_multiplier = 1.4;
-        result.od_multiplier = 1.4;
-      }
-      _ => (),
-    }
-    result
-  }
-
-  // TODO: other mods
-  pub fn exclusive<'a>(&'a self) -> slice::Iter<'a, OsruGameModName> {
-    self.exclusive.iter()
-  }
-
-  pub fn name(&self) -> OsruGameModName {
-    self.game_mod_name
-  }
-}
-impl Default for OsruGameMod {
-  fn default() -> Self {
-    OsruGameMod {
-      game_mod_name: OsruGameModName::None,
-      exclusive: vec![],
-      ar_multiplier: 1.0,
-      od_multiplier: 1.0,
-      cs_multiplier: 1.0,
-    }
-  }
-}
-impl hash::Hash for OsruGameMod {
-  fn hash<H: hash::Hasher>(&self, state: &mut H) {
-    self.game_mod_name.hash(state);
-  }
-}
-impl cmp::PartialEq for OsruGameMod {
-  fn eq(&self, other: &OsruGameMod) -> bool {
-    self.game_mod_name == other.game_mod_name
-  }
-}
-impl cmp::Eq for OsruGameMod {}

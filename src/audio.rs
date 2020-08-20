@@ -14,6 +14,8 @@ use std::{
 pub enum AudioMessage {
   Ready,
   Stop,
+  Play(usize),
+  Done,
 }
 
 pub struct AudioManager {
@@ -124,10 +126,16 @@ impl AudioManager {
     }
   }
 
-  pub fn sleep_until_stop(&self, rx: mpsc::Receiver<AudioMessage>) {
+  pub fn wait(&mut self, rx: mpsc::Receiver<AudioMessage>) {
     'running: loop {
       match rx.recv() {
-        Ok(AudioMessage::Stop) | Err(_) => break 'running,
+        Err(_) => {
+          println!("Audio manager recv() ERR");
+          break 'running;
+        }
+        Ok(AudioMessage::Stop) => break 'running,
+        Ok(AudioMessage::Done) => self.sleep_until_end(),
+        Ok(AudioMessage::Play(id)) => self.play_source(id),
         _ => (),
       }
     }
