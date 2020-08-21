@@ -14,13 +14,13 @@ use global::*;
 use sdl2::event::*;
 
 use std::{
-  fs::File,
-  io::prelude::*,
-  sync::{mpsc, Arc, Mutex},
-  thread,
-  time::{Duration, Instant},
+   fs::File,
+   io::prelude::*,
+   sync::{mpsc, Arc, Mutex},
+   thread,
+   time::{Duration, Instant},
 };
 
 fn main() {
-  let g = game::Game::start();
+   let g = game::Game::start();
 }
