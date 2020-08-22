@@ -1,3 +1,4 @@
+use crate::global::pixel::*;
 use crate::global::*;
 use crate::input::{self, InputManager, InputUpdate};
 
@@ -50,7 +51,7 @@ pub trait HitObject {
    fn draw_state(&self) -> DrawState;
    fn to_string(&self) -> String;
    fn hit_success(&self) -> HitSuccess;
-   fn prepare(&mut self, viewport_size: &OsruRect);
+   fn prepare(&mut self, viewport_size: &PixRect);
 }
 impl fmt::Debug for dyn HitObject {
    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -60,7 +61,7 @@ impl fmt::Debug for dyn HitObject {
 
 #[derive(Debug, Clone)]
 pub struct HitCircle {
-   pub position: OsruPixels,
+   pub position: Pix2D,
    pub time: Duration,
    pub new_combo: bool,
    pub combo_colours_to_skip: usize,
@@ -76,12 +77,12 @@ pub struct HitCircle {
    pub hit_success: HitSuccess,
    pub colour: Colour<u8>,
    pub scale: bool,
-   pub circle_pos_to_window: Pixels,
+   pub circle_pos_to_window: Pix2D,
 }
 impl Default for HitCircle {
    fn default() -> Self {
       HitCircle {
-         position: OsruPixels::default(),
+         position: Pix2D::default_screen(),
          time: Duration::from_secs(0),
          new_combo: false,
          combo_colours_to_skip: 0,
@@ -95,7 +96,7 @@ impl Default for HitCircle {
          hit_success: HitSuccess::default(),
          colour: Colour { r: u8::MAX, g: u8::MAX, b: u8::MAX, a: u8::MAX },
          scale: true,
-         circle_pos_to_window: Pixels::default(),
+         circle_pos_to_window: Pix2D::default_screen(),
       }
    }
 }
@@ -117,10 +118,10 @@ impl HitObject for HitCircle {
             let last_mouse_pos = update.previous_mouse_pos();
 
             if (update.K1_pressed() || update.K2_pressed())
-               && is_mouse_pos_in_range(&self.circle_pos_to_window.clone(), last_mouse_pos, 200.0)
+               && is_mouse_pos_in_range(&self.circle_pos_to_window, last_mouse_pos, &Pix::screen_pix(200))
             {
-               let t = (self.time.as_secs_f32() - current_time.as_secs_f32()).abs();
-               if t < animation_timings.timing_meh.as_secs_f32(){
+               let t = (self.time.as_micros() as i128 - current_time.as_micros() as i128).abs() as u128;
+               if t < animation_timings.timing_meh.as_micros() {
                   self.hit_success = Meh;
                   self.colour.r = 255;
                   self.colour.g = 159;
@@ -128,13 +129,13 @@ impl HitObject for HitCircle {
                   self.colour.a = u8::MAX / 2;
                   self.scale = false;
 
-                  if t < animation_timings.timing_good.as_secs_f32() {
+                  if t < animation_timings.timing_good.as_micros() {
                      self.hit_success = Good;
                      self.colour.r = 141;
                      self.colour.g = 221;
                      self.colour.b = 0;
 
-                     if t < animation_timings.timing_great.as_secs_f32() {
+                     if t < animation_timings.timing_great.as_micros() {
                         self.hit_success = Great;
                         self.colour.r = 0;
                         self.colour.g = 180;
@@ -151,22 +152,26 @@ impl HitObject for HitCircle {
                self.colour.a = u8::MAX / 2;
                self.scale = false;
             } else {
-               let mut opacity = (current_time + animation_timings.preempt - self.time).as_nanos() * 128
+               let mut opacity = ((current_time + animation_timings.preempt - self.time).as_nanos() * 192)
                   / animation_timings.fade_in.as_nanos();
-               if opacity > 128 {
-                  opacity = 128;
+               if opacity > 192 {
+                  opacity = 192;
                }
                self.colour.a = opacity as u8;
             }
-         }
-         else{
-            if current_time > self.time { self.colour.a = (128 - ((current_time - self.time).as_nanos() * 128 /animation_timings.timing_meh.as_nanos() / 2)) as u8;}
+         } else {
+            if current_time > self.time {
+               self.colour.a = (128
+                  - ((current_time - self.time).as_nanos() * 128
+                     / animation_timings.timing_meh.as_nanos()
+                     / 2)) as u8;
+            }
          }
       }
       return Failed;
    }
 
-   fn prepare(&mut self, viewport_size: &OsruRect) {
+   fn prepare(&mut self, viewport_size: &PixRect) {
       self.circle_pos_to_window = convert_osru_coordinates(&self.position, viewport_size);
    }
 
@@ -176,14 +181,17 @@ impl HitObject for HitCircle {
          texture.set_alpha_mod(self.colour.a);
          texture.set_color_mod(self.colour.r, self.colour.g, self.colour.b);
 
-         let image_rect = OsruRect::new(
-            self.position.0,
-            self.position.1,
-            texture.query().width as f64,
-            texture.query().height as f64,
+         let image_size = Pix2D::new(
+            Pix::screen_pix(texture.query().width as isize),
+            Pix::screen_pix(texture.query().height as isize),
          );
-         let viewport =
-            osru_pixels_to_window(&image_rect, &OsruRect::new_from_sdl2_rect(canvas.viewport()), self.scale);
+         let viewport = circle_pos_wrt_window(
+            &self.position,
+            &image_size,
+            &PixRect::new_from_sdl2_rect(canvas.viewport()),
+            self.scale,
+         );
+         //println!("{:?} {:?} {:?}", image_rect, &viewport, &PixRect::new_from_sdl2_rect(canvas.viewport()));
          canvas.copy(texture, None, viewport.to_sdl2_rect()).unwrap();
       }
       self.draw_state
@@ -210,22 +218,22 @@ impl HitObject for HitCircle {
 }
 
 pub struct Slider {
-   pub position: OsruPixels,
+   pub position: Pix2D,
    pub time: Duration,
    pub new_combo: bool,
    pub combo_colours_to_skip: usize,
    pub hitsounds: OsruHitSounds,
    pub curve_type: OsruCurveType,
-   pub curve_points: Vec<OsruPixels>,
+   pub curve_points: Vec<Pix2D>,
    pub num_slides: usize,
-   pub length_of_slider: OsruPixel,
+   pub length_of_slider: Pix,
 
    pub edge_sounds: Vec<isize>,
    pub edge_sets: Vec<String>,
 }
 
 pub struct Spinner {
-   pub position: OsruPixels,
+   pub position: Pix2D,
    pub time: Duration,
    pub new_combo: bool,
    pub combo_colours_to_skip: usize,

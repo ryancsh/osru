@@ -3,7 +3,11 @@
 #[allow(non_camel_case_types)]
 pub enum SampleSetType{ NoCustom, normal, soft, drum}
 */
+pub mod pixel;
+
 use enum_iterator::IntoEnumIterator;
+use pixel::*;
+use sdl2::rect::Rect;
 use std::ops;
 use std::time::{Duration, SystemTime};
 
@@ -21,14 +25,12 @@ pub const TIMING_WINDOW_GOOD_MULTIPLIER: Duration = Duration::from_micros(8_000)
 pub const TIMING_WINDOW_MEH: Duration = Duration::from_micros(200_000);
 pub const TIMING_WINDOW_MEH_MULTIPLIER: Duration = Duration::from_micros(10_000);
 
-//pub const TIME_PER_FRAME: Duration = Duration::from_nanos(999_999_999 / 576);
-
-pub const DEFAULT_WINDOW_SIZE: (usize, usize) = (640, 480);
+pub const TIME_PER_FRAME: Duration = Duration::from_nanos(999_999_999 / 144);
 
 pub static mut USER_EVENT_TYPE: u32 = 0;
 pub static DEFAULT_ANIMATION_TIMING: AnimationTiming = AnimationTiming {
    preempt: Duration::from_millis(500),
-   fade_in: Duration::from_millis(400),
+   fade_in: Duration::from_millis(300),
    timing_great: TIMING_WINDOW_GREAT,
    timing_good: TIMING_WINDOW_GOOD,
    timing_meh: TIMING_WINDOW_MEH,
@@ -79,56 +81,6 @@ pub enum OsruHitSuccess {
    Good,
    Meh,
    Miss,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct OsruPixel(pub f64);
-#[derive(Debug, Clone, Default)]
-pub struct OsruPixels(pub f64, pub f64);
-#[derive(Default, Debug, Clone, PartialEq)]
-pub struct Pixels(pub f64, pub f64);
-impl ops::Add for Pixels {
-   type Output = Pixels;
-   fn add(self, rhs: Self) -> Self::Output {
-      Pixels(self.0 + rhs.0, self.1 + rhs.1)
-   }
-}
-impl ops::Sub for Pixels {
-   type Output = Pixels;
-   fn sub(self, rhs: Self) -> Self::Output {
-      Pixels(self.0 - rhs.0, self.1 - rhs.1)
-   }
-}
-
-#[derive(Debug, Clone)]
-pub struct OsruRect {
-   pub x: f64,
-   pub y: f64,
-   pub width: f64,
-   pub height: f64,
-}
-impl OsruRect {
-   pub fn new(x: f64, y: f64, width: f64, height: f64) -> OsruRect {
-      OsruRect { x, y, width, height }
-   }
-
-   pub fn new_from_sdl2_rect(sdl2_rect: sdl2::rect::Rect) -> OsruRect {
-      OsruRect::new(
-         sdl2_rect.x() as f64,
-         sdl2_rect.y() as f64,
-         sdl2_rect.width() as f64,
-         sdl2_rect.height() as f64,
-      )
-   }
-
-   pub fn to_sdl2_rect(&self) -> sdl2::rect::Rect {
-      sdl2::rect::Rect::new(
-         self.x.round() as i32,
-         self.y.round() as i32,
-         self.width.round() as u32,
-         self.height.round() as u32,
-      )
-   }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -323,9 +275,15 @@ pub fn mergestr(s1: &str, s2: &str) -> String {
    result
 }
 
-pub fn osru_pixels_to_window(image: &OsruRect, viewport_size: &OsruRect, scale_image: bool) -> OsruRect {
-   let x_ratio = viewport_size.width / DEFAULT_WINDOW_SIZE.0 as f64;
-   let y_ratio = viewport_size.height / DEFAULT_WINDOW_SIZE.1 as f64;
+pub fn circle_pos_wrt_window(
+   circle_pos: &Pix2D, image_size: &Pix2D, viewport_size: &PixRect, scale_image: bool,
+) -> PixRect {
+   const SCALING_RATIO_PRECISION: isize = 512;
+
+   let x_ratio =
+      (viewport_size.width().get_mpix() * SCALING_RATIO_PRECISION) / DEFAULT_WINDOW_SIZE_X.get_mpix();
+   let y_ratio =
+      (viewport_size.height().get_mpix() * SCALING_RATIO_PRECISION) / DEFAULT_WINDOW_SIZE_Y.get_mpix();
 
    let scaling_factor = {
       if x_ratio > y_ratio {
@@ -334,33 +292,42 @@ pub fn osru_pixels_to_window(image: &OsruRect, viewport_size: &OsruRect, scale_i
          x_ratio
       }
    };
-   //TODO fix letter boxing
-   let mut new_image_width = image.width as f64;
-   let mut new_image_height = image.height as f64;
 
-   if scale_image {
-      new_image_width *= scaling_factor;
-      new_image_height *= scaling_factor;
-   }
+   let new_viewport_width = (DEFAULT_WINDOW_SIZE_X * scaling_factor) / SCALING_RATIO_PRECISION;
+   let new_viewport_height = (DEFAULT_WINDOW_SIZE_Y * scaling_factor) / SCALING_RATIO_PRECISION;
 
-   let new_viewport_width = DEFAULT_WINDOW_SIZE.0 as f64 * scaling_factor;
-   let new_viewport_height = DEFAULT_WINDOW_SIZE.1 as f64 * scaling_factor;
+   let new_viewport_offset_x = (viewport_size.width() - new_viewport_width) / 2;
+   let new_viewport_offset_y = (viewport_size.height() - new_viewport_height) / 2;
 
-   let new_viewport_offset_x = (viewport_size.width - new_viewport_width) / 2.0;
-   let new_viewport_offset_y = (viewport_size.height - new_viewport_height) / 2.0;
+   let image_scaling = {
+      if scale_image {
+         scaling_factor
+      } else {
+         SCALING_RATIO_PRECISION
+      }
+   };
 
-   let mut new_image_offset_x = image.x * scaling_factor + new_viewport_offset_x;
-   let mut new_image_offset_y = image.y * scaling_factor + new_viewport_offset_y;
+   let new_image_width = (image_size.x() * image_scaling) / SCALING_RATIO_PRECISION;
+   let new_image_height = (image_size.y() * image_scaling) / SCALING_RATIO_PRECISION;
 
-   new_image_offset_x -= new_image_width / 2.0;
-   new_image_offset_y -= new_image_height / 2.0;
+   let mut new_image_pos_x =
+      (Pix::screen_mpix(circle_pos.x().get_mpix()) * scaling_factor) / SCALING_RATIO_PRECISION;
+   new_image_pos_x = new_image_pos_x - new_image_width / 2 + new_viewport_offset_x;
 
-   OsruRect::new(new_image_offset_x, new_image_offset_y, new_image_width, new_image_height)
+   let mut new_image_pos_y =
+      (Pix::screen_mpix(circle_pos.y().get_mpix()) * scaling_factor) / SCALING_RATIO_PRECISION;
+   new_image_pos_y = new_image_pos_y - new_image_height / 2 + new_viewport_offset_y;
+
+   PixRect::new(new_image_pos_x, new_image_pos_y, new_image_width, new_image_height)
 }
 
-pub fn convert_osru_coordinates(osru_coord: &OsruPixels, viewport_size: &OsruRect) -> Pixels {
-   let x_ratio = viewport_size.width / DEFAULT_WINDOW_SIZE.0 as f64;
-   let y_ratio = viewport_size.height / DEFAULT_WINDOW_SIZE.1 as f64;
+pub fn convert_osru_coordinates(osru_coord: &Pix2D, viewport_size: &PixRect) -> Pix2D {
+   const SCALING_RATIO_PRECISION: isize = 512;
+
+   let x_ratio =
+      (viewport_size.width().get_mpix() * SCALING_RATIO_PRECISION) / DEFAULT_WINDOW_SIZE_X.get_mpix();
+   let y_ratio =
+      (viewport_size.height().get_mpix() * SCALING_RATIO_PRECISION) / DEFAULT_WINDOW_SIZE_Y.get_mpix();
    let scaling_factor = {
       if x_ratio > y_ratio {
          y_ratio
@@ -368,22 +335,25 @@ pub fn convert_osru_coordinates(osru_coord: &OsruPixels, viewport_size: &OsruRec
          x_ratio
       }
    };
-   let new_viewport_width = DEFAULT_WINDOW_SIZE.0 as f64 * scaling_factor;
-   let new_viewport_height = DEFAULT_WINDOW_SIZE.1 as f64 * scaling_factor;
+   let new_viewport_width = (DEFAULT_WINDOW_SIZE_X * scaling_factor) / SCALING_RATIO_PRECISION;
+   let new_viewport_height = (DEFAULT_WINDOW_SIZE_Y * scaling_factor) / SCALING_RATIO_PRECISION;
 
-   let new_viewport_offset_x = (viewport_size.width - new_viewport_width) / 2.0;
-   let new_viewport_offset_y = (viewport_size.height - new_viewport_height) / 2.0;
+   let new_viewport_offset_x = (viewport_size.width() - new_viewport_width) / 2;
+   let new_viewport_offset_y = (viewport_size.height() - new_viewport_height) / 2;
 
-   let new_coord_x = osru_coord.0 * scaling_factor + new_viewport_offset_x;
-   let new_coord_y = osru_coord.1 * scaling_factor + new_viewport_offset_y;
+   let new_coord_x = (osru_coord.x() * scaling_factor).get_mpix() / SCALING_RATIO_PRECISION
+      + new_viewport_offset_x.get_mpix();
+   let new_coord_y = (osru_coord.y() * scaling_factor).get_mpix() / SCALING_RATIO_PRECISION
+      + new_viewport_offset_y.get_mpix();
 
-   Pixels(new_coord_x, new_coord_y)
+   Pix2D::new(Pix::screen_mpix(new_coord_x), Pix::screen_mpix(new_coord_y))
 }
 
-pub fn is_mouse_pos_in_range(circle_pos: &Pixels, mouse_pos: &Pixels, radius: f64) -> bool {
-   let x_sq = (circle_pos.0 - mouse_pos.0).powi(2);
-   let y_sq = (circle_pos.1 - mouse_pos.1).powi(2);
-   let r_sq = radius * radius;
+pub fn is_mouse_pos_in_range(circle_pos: &Pix2D, mouse_pos: &Pix2D, radius: &Pix) -> bool {
+   let diff = *circle_pos - *mouse_pos;
+   let x_sq = diff.x().get_pix_trunc().pow(2);
+   let y_sq = diff.y().get_pix_trunc().pow(2);
+   let r_sq = radius.get_pix_trunc().pow(2);
    if r_sq >= x_sq + y_sq {
       true
    } else {
@@ -394,14 +364,16 @@ pub fn is_mouse_pos_in_range(circle_pos: &Pixels, mouse_pos: &Pixels, radius: f6
 pub fn display_background_image(
    canvas: &mut sdl2::render::WindowCanvas, texture: &mut sdl2::render::Texture, allow_letterbox: bool,
 ) {
-   let mut image_width = texture.query().width as f64;
-   let mut image_height = texture.query().height as f64;
+   const SCALING_RATIO_PRECISION: isize = 512;
 
-   let viewport_width = canvas.viewport().width() as f64;
-   let viewport_height = canvas.viewport().height() as f64;
+   let mut image_width = texture.query().width as isize;
+   let mut image_height = texture.query().height as isize;
 
-   let scaling_factor_x = viewport_width / image_width;
-   let scaling_factor_y = viewport_height / image_height;
+   let viewport_width = canvas.viewport().width() as isize;
+   let viewport_height = canvas.viewport().height() as isize;
+
+   let scaling_factor_x = (viewport_width * SCALING_RATIO_PRECISION) / image_width;
+   let scaling_factor_y = (viewport_height * SCALING_RATIO_PRECISION) / image_height;
 
    let scaling_factor = {
       if scaling_factor_x > scaling_factor_y {
@@ -419,17 +391,19 @@ pub fn display_background_image(
       }
    };
 
-   image_width *= scaling_factor;
-   image_height *= scaling_factor;
+   image_width = (image_width * scaling_factor) / SCALING_RATIO_PRECISION;
+   image_height = (image_height * scaling_factor) / SCALING_RATIO_PRECISION;
 
-   let image_offset_x = (viewport_width - image_width) / 2.0;
-   let image_offset_y = (viewport_height - image_height) / 2.0;
+   let image_offset_x = (viewport_width - image_width) / 2;
+   let image_offset_y = (viewport_height - image_height) / 2;
 
-   canvas
-      .copy(
-         &texture,
-         None,
-         OsruRect::new(image_offset_x, image_offset_y, image_width, image_height).to_sdl2_rect(),
-      )
-      .unwrap();
+   let dst_viewport = PixRect::new(
+      Pix::screen_pix(image_offset_x),
+      Pix::screen_pix(image_offset_y),
+      Pix::screen_pix(image_width),
+      Pix::screen_pix(image_height),
+   )
+   .to_sdl2_rect();
+
+   canvas.copy(&texture, None, Some(dst_viewport)).unwrap();
 }

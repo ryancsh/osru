@@ -1,5 +1,6 @@
 extern crate sdl2;
 
+use crate::global::pixel::*;
 use crate::global::*;
 use crate::input;
 use hitobject::{DrawState, UpdateResult};
@@ -10,7 +11,7 @@ use crate::{
    beatmap::{self, *},
 };
 
-use sdl2::{image::LoadTexture, pixels, video::FullscreenType::Desktop};
+use sdl2::{image::LoadTexture, pixels, rect::Rect, video::FullscreenType::Desktop};
 
 use std::sync::mpsc;
 use std::{
@@ -24,18 +25,10 @@ pub struct Game {}
 impl Game {
    pub fn start() {
       let audio = true;
-      let mut target_frame_time = Duration::from_secs(0);
 
-      let mut run = true;
-      let mut num_frames: u64 = 0;
-      let mut slowest_frame = Duration::from_secs(0);
-
-      const _MAGIC:&str = "assets/beatmap/magic/Shihori - Magic Girl !! (Frostmourne) [Hard].osu";
+      const _MAGIC: &str = "assets/beatmap/magic/Shihori - Magic Girl !! (Frostmourne) [Hard].osu";
       const _KOI: &str = "assets/beatmap/koi/KOTOKO - Koi Kou Enishi (Crystal) [Hard].osu";
-      let (audio_filename, background_filename, mut b) = Game::start_beatmap(
-         OsruGameMode::Standard,
-         _KOI,
-      );
+      let (audio_filename, background_filename, mut b) = Game::start_beatmap(OsruGameMode::Standard, _KOI);
       let background_filename = {
          if let Some(filename) = background_filename {
             filename
@@ -45,8 +38,8 @@ impl Game {
       };
 
       println!("{}", b.hitobjects.len());
-      // start audio
 
+      // start audio
       let (tx, rx) = mpsc::channel();
       let (ty, ry) = mpsc::channel();
 
@@ -65,13 +58,28 @@ impl Game {
       let video_subsystem = sdl_context.video().unwrap();
 
       let mut canvas = {
+         fn find_sdl_gl_driver() -> Option<u32> {
+            for (index, item) in sdl2::render::drivers().enumerate() {
+               if item.name == "opengl" {
+                  return Some(index as u32);
+               }
+            }
+            None
+         }
+         find_sdl_gl_driver();
+
          let window = video_subsystem
-            .window("Osru", DEFAULT_WINDOW_SIZE.0 as u32, DEFAULT_WINDOW_SIZE.1 as u32)
+            .window(
+               "Osru",
+               DEFAULT_WINDOW_SIZE_X.get_pix_round() as u32,
+               DEFAULT_WINDOW_SIZE_Y.get_pix_round() as u32,
+            )
+            .vulkan()
             .allow_highdpi()
             .position_centered()
             .build()
             .unwrap();
-         window.into_canvas().build().unwrap()
+         window.into_canvas().build().unwrap() //index(find_sdl_gl_driver().unwrap())
       };
       canvas.window_mut().set_fullscreen(Desktop).unwrap();
       canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
@@ -92,22 +100,20 @@ impl Game {
       //input
       let event_subsys = sdl_context.event().unwrap();
       event_subsys.register_custom_event::<TimeBarrier>().unwrap();
+      let event_pump = sdl_context.event_pump().unwrap();
 
-      let mut input_manager = input::InputManager::new(sdl_context.event_pump().unwrap());
+      let mut input_manager = input::InputManager::new(event_pump);
 
       // other stuff
       let mut hitobj_start_i = 0;
       let mut hitobj_update_i = 0;
 
-      let background_viewport = OsruRect::new(
-         0.0,
-         0.0,
-         background_texture.query().width as f64,
-         background_texture.query().height as f64,
+      let background_viewport = Pix2D::new(
+         Pix::screen_pix(background_texture.query().width as isize),
+         Pix::screen_pix(background_texture.query().height as isize),
       );
-      let background_viewport =
-         osru_pixels_to_window(&background_viewport, &OsruRect::new_from_sdl2_rect(canvas.viewport()), true);
-      let viewport_size = OsruRect::new_from_sdl2_rect(canvas.viewport());
+
+      let viewport_size = PixRect::new_from_sdl2_rect(canvas.viewport());
       {
          canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
          canvas.clear();
@@ -115,6 +121,17 @@ impl Game {
          canvas.copy(&background_texture2, None, None).unwrap();
       }
       b.prepare(&viewport_size);
+
+      let mut run = true;
+      let mut num_frames: u64 = 0;
+      let mut slowest_draw = Duration::from_secs(0);
+      let mut slowest_update = Duration::from_secs(0);
+      let mut slowest_frame = Duration::from_secs(0);
+      let mut expected_draw_time = Duration::from_secs(0);
+      let mut expected_frame_time = Duration::from_secs(0);
+      let mut expected_update_time;
+      let mut draw_start = Instant::now();
+      let mut update_start;
 
       // wait for audio
       'wait_for_audio: loop {
@@ -126,23 +143,22 @@ impl Game {
       }
 
       // start game
-      let mut frame_start = Instant::now();
       tx.send(AudioMessage::Play(0)).unwrap();
       input_manager.start_timer();
 
       // main loop
       'renderLoop: loop {
-         //target_frame_time = frame_start.elapsed() * 15/16;
-         
-         // update
          {
+            // update
+            update_start = Instant::now();
             use hitobject::{DrawState::*, HitSuccess::*, UpdateResult::*};
-            event_subsys.push_custom_event(TimeBarrier {}).unwrap();
             let mut i = hitobj_update_i;
             let mut new_update_i = None;
 
+            input_manager.force_time_update();
             'nextObj: loop {
-               if i >= b.hitobjects.len(){
+               input_manager.poll_one();
+               if i >= b.hitobjects.len() {
                   while let Some(update) = input_manager.next_update() {}
                   break 'nextObj;
                }
@@ -165,27 +181,35 @@ impl Game {
                }
             }
             hitobj_update_i = new_update_i.unwrap_or(hitobj_update_i);
-         }
-         frame_start = Instant::now();
-         
-         
-         {
-            //draw background
-            canvas.set_blend_mode(sdl2::render::BlendMode::None);
-            canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
-            canvas.clear();
-            display_background_image(&mut canvas, &mut background_texture, false);
-            canvas.copy(&background_texture2, None, None).unwrap();
+
+            let temp = update_start.elapsed();
+            if slowest_update < temp {
+               slowest_update = temp;
+            }
+            expected_update_time = (temp * 3 + slowest_update) / 4;
+            run = run && input_manager.is_running();
          }
 
-         {
+         if draw_start.elapsed() + expected_draw_time > expected_frame_time * 2 {
+            draw_start = Instant::now();
+            //draw background
+            canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
+            canvas.clear();
+            canvas.set_blend_mode(sdl2::render::BlendMode::None);
+            display_background_image(&mut canvas, &mut background_texture, false);
+            canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+            canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, u8::MAX / 4 * 3));
+            canvas.fill_rect(canvas.viewport()).unwrap();
+            //canvas.copy(&background_texture2, None, None).unwrap();
+
+            //input_manager.poll();
             //let time = input_manager.reference_time().elapsed_sys_time(Instant::now());
-            let snap = InputSnapshot::new_from(input_manager.last_snapshot());
-            let update = InputUpdate::new(&snap, &snap);
             let mut not_draw = true;
+            let last_snapshot = input_manager.curr_snapshot().clone();
+            let last_update = InputUpdate::new(&last_snapshot, &last_snapshot);
             'update_time: for i in hitobj_start_i..b.hitobjects.len() {
                let h = b.hitobjects.get_mut(i).unwrap();
-               h.update(&update, &DEFAULT_ANIMATION_TIMING);
+               h.update(&last_update, &DEFAULT_ANIMATION_TIMING);
                let draw_state = h.draw(&mut canvas, &mut texture);
                if not_draw && draw_state == DrawState::Drawing {
                   not_draw = false;
@@ -193,31 +217,33 @@ impl Game {
                } else if draw_state == DrawState::NotYet {
                   break 'update_time;
                }
+               input_manager.poll_one();
             }
-            run = run && !not_draw && input_manager.is_running();
-         }
+            run = run && !not_draw;
 
-         {
             //draw keypresses
-            let snapshot = input_manager.last_snapshot();
             canvas.set_draw_color(pixels::Color::RGBA(255, 255, 255, u8::MAX / 2));
             canvas.set_blend_mode(sdl2::render::BlendMode::Add);
-            if snapshot.K1() {
+            if last_snapshot.K1() {
                canvas.fill_rect(sdl2::rect::Rect::new(2304, 656, 128, 128)).unwrap();
             }
-            if snapshot.K2() {
+            if last_snapshot.K2() {
                canvas.fill_rect(sdl2::rect::Rect::new(2304, 784, 128, 128)).unwrap();
             }
-         }
-         canvas.present();
-         thread::yield_now();
+            input_manager.poll_all();
+            canvas.present();
+            input_manager.poll_all();
 
-         let current_frame_time = frame_start.elapsed();
-         if slowest_frame < current_frame_time {
-            slowest_frame = current_frame_time;
-         }
+            num_frames += 1;
 
-         num_frames += 1;
+            let draw_start_time = draw_start.elapsed();
+            if slowest_draw < draw_start_time {
+               slowest_draw = draw_start_time;
+            }
+            expected_draw_time = (draw_start_time * 3 + slowest_draw) / 4;
+
+            draw_start = Instant::now();
+         }
 
          if !run {
             if !input_manager.is_running() {
@@ -230,12 +256,22 @@ impl Game {
                _ => (),
             }
          }
+
+         let current_frame_time = update_start.elapsed();
+         expected_frame_time = expected_draw_time + expected_update_time;
+         if slowest_frame < current_frame_time {
+            slowest_frame = current_frame_time;
+         }
+         input_manager.poll_all();
+         thread::yield_now();
       }
-      let total_time = input_manager.reference_time().elapsed_sys_time(Instant::now()).as_millis() as f64;
+      let total_time = input_manager.reference_time().elapsed_sys_time(Instant::now()).as_secs_f64();
       println!(
-         "fps: avg {}, min {}",
-         num_frames as f64 / total_time * 1000.0,
+         "fps: avg {}, min {}\nupdate min {}, draw min {}",
+         num_frames as f64 / total_time,
          1.0 / slowest_frame.as_secs_f64(),
+         1.0 / slowest_update.as_secs_f64(),
+         1.0 / slowest_draw.as_secs_f64()
       );
       {
          use hitobject::HitSuccess::*;
@@ -262,7 +298,7 @@ impl Game {
    }
 
    pub fn start_beatmap(mode: OsruGameMode, filename: &str) -> (String, Option<String>, Beatmap) {
-      use beatmap::BeatmapSettings::*;
+      use beatmap::settings::BeatmapSettings::*;
       let b = beatmap::Beatmap::load(filename);
 
       let audio_filename = b.get(AudioFilename).unwrap().parse_as_str().to_string();
@@ -288,7 +324,6 @@ impl Game {
       };
       println!("{:?} {:?} {:?}", parent_dir, audio_filename, background_filename);
 
-      //audio_manager.sleep_until_end();
       (audio_filename, background_filename, b)
    }
 }

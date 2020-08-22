@@ -394,6 +394,7 @@ mod tests {
    use super::*;
    use rand::prelude::*;
    #[test]
+   #[ignore]
    fn test_normalize_volume() {
       fn test_vol(message: &str, samples: &Vec<i16>) {
          println!("test_normalize_volume {}", message);

@@ -1,8 +1,9 @@
-use crate::{audio, global::*};
+use crate::{audio, global::pixel::*, global::*};
 use hitobject::*;
 
 pub mod event;
 pub mod hitobject;
+pub mod settings;
 
 use std::time::{Duration, SystemTime};
 use std::{any, clone, cmp, collections::HashMap, fmt, fs, slice};
@@ -11,13 +12,13 @@ extern crate enum_iterator;
 use enum_iterator::IntoEnumIterator;
 
 use event::*;
+use settings::*;
 
 pub struct Beatmap {
    pub settings: HashMap<BeatmapSettings, OsruType>,
 
    pub timing_points: Vec<TimingPoint>,
    pub hitobjects: Vec<Box<dyn HitObject>>,
-   pub hitobject_start_index: usize,
    pub event_backgrounds: Vec<EventBackground>,
    /*
    pub event_backgrounds : Vec<EventBackground>,
@@ -88,7 +89,6 @@ impl Beatmap {
 
          timing_points: vec![],
          hitobjects: vec![],
-         hitobject_start_index: 0,
          event_backgrounds: vec![],
          /*
          event_videos: vec![],
@@ -102,6 +102,9 @@ impl Beatmap {
    pub fn load(filename: &str) -> Beatmap {
       let mut beatmap = Beatmap::new();
       let file = fs::read_to_string(filename).unwrap();
+      let mut last_hitobj_pos_x = -1;
+      let mut last_hitobj_pos_y = -1;
+      let mut hitobj_stack = 0;
 
       use BeatmapSection::*;
       let mut section = General;
@@ -149,10 +152,11 @@ impl Beatmap {
                   let filename = filename.trim_end_matches("\"");
                   let filename = filename.trim_start_matches("\"");
                   let filename = nstr(filename);
-                  let mut offset_from_center = OsruPixels::default();
+                  let mut offset_from_center = Pix2D::new(Pix::osru_pix(0), Pix::osru_pix(0));
                   if line.len() >= 5 {
-                     offset_from_center.0 = line[3].trim().parse().unwrap_or_default();
-                     offset_from_center.1 = line[4].trim().parse().unwrap_or_default();
+                     let x = line[3].trim().parse().unwrap_or_default();
+                     let y = line[4].trim().parse().unwrap_or_default();
+                     offset_from_center.set_pix(Pix::osru_pix(x), Pix::osru_pix(y));
                   }
                   beatmap.event_backgrounds.push(EventBackground {
                      start_time,
@@ -182,9 +186,20 @@ impl Beatmap {
          } else if section == HitObjects {
             let line = parse_list(line, ",");
             if line.len() >= 4 {
-               let x = line[0].trim().parse().unwrap_or_default();
-               let y = line[1].trim().parse().unwrap_or_default();
-               let position = OsruPixels(x, y);
+               let position = {
+                  let mut x = line[0].trim().parse().unwrap_or_default();
+                  let mut y = line[1].trim().parse().unwrap_or_default();
+                  if x == last_hitobj_pos_x && y == last_hitobj_pos_y {
+                     hitobj_stack += 1;
+                     x += 5 * hitobj_stack;
+                     y += 5 * hitobj_stack;
+                  } else {
+                     last_hitobj_pos_x = x;
+                     last_hitobj_pos_y = y;
+                     hitobj_stack = 0;
+                  }
+                  Pix2D::new(Pix::osru_pix(x), Pix::osru_pix(y))
+               };
                let time: isize = line[2].trim().parse().unwrap_or_default();
                let type_bitflags = line[3].trim().parse::<usize>().unwrap_or_default();
                let hitsound_bitflags = line[4].trim().parse::<usize>().unwrap_or_default();
@@ -195,7 +210,7 @@ impl Beatmap {
                if type_bitflags & 0b1 == 0b1 {
                   //hitcircle
                   let h = HitCircle {
-                     position: OsruPixels(x, y),
+                     position,
                      time: Duration::from_millis(time as u64),
                      new_combo,
                      combo_colours_to_skip,
@@ -225,7 +240,7 @@ impl Beatmap {
                         if split.len() == 2 {
                            let x = split[0].trim().parse().unwrap_or_default();
                            let y = split[1].trim().parse().unwrap_or_default();
-                           let curve_point = OsruPixels(x, y);
+                           let curve_point = Pix2D::new(Pix::osru_pix(x), Pix::osru_pix(y));
                            curve_list.push(curve_point);
                         }
                      }
@@ -249,7 +264,7 @@ impl Beatmap {
                   }
 
                   let h = HitCircle {
-                     position: OsruPixels(x, y),
+                     position,
                      time: Duration::from_millis(time as u64),
                      new_combo,
                      combo_colours_to_skip,
@@ -268,11 +283,6 @@ impl Beatmap {
                } else {
                   println!("unknown {:?}", line);
                }
-
-               if type_bitflags & 0b0100 == 0b0100 {
-                  //new combo
-               }
-               let combo_colours_to_skip = (type_bitflags & 0b1110000) >> 4;
             }
          }
       }
@@ -289,65 +299,10 @@ impl Beatmap {
       }
    }
 
-   pub fn prepare(&mut self, viewport_size: &OsruRect) {
+   pub fn prepare(&mut self, viewport_size: &PixRect) {
       for hitobj in self.hitobjects.iter_mut() {
          hitobj.prepare(viewport_size);
       }
-   }
-}
-
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, IntoEnumIterator)]
-pub enum BeatmapSettings {
-   Unknown,
-   //General
-   AudioFilename,
-   AudioLeadIn,
-   AudioHash,
-   PreviewTime,
-   Countdown,
-   SampleSet,
-   StackLeniency,
-   Mode,
-   LetterboxInBreaks,
-   StoryFireInFront,
-   UseSkinSprites,
-   AlwaysShowPlayfield,
-   OverlayPosition,
-   SkinPreference,
-   EpilepsyWarning,
-   CountdownOffset,
-   SpecialStyle,
-   WidescreenStoryboard,
-   SamplesMatchPlaybackRate,
-   //Editor
-   Bookmarks,
-   DistanceSpacing,
-   BeatDivisor,
-   GridSize,
-   TimelineZoom,
-   // Metadata
-   Title,
-   TitleUnicode,
-   Artist,
-   ArtistUnicode,
-   Creator,
-   Version,
-   Source,
-   Tags,
-   BeatmapID,
-   BeatmapSetID,
-   // Difficulty
-   HPDrainRate,
-   CircleSize,
-   OverallDifficulty,
-   ApproachRate,
-   SliderMultiplier,
-   SliderTickRate,
-}
-
-impl fmt::Display for BeatmapSettings {
-   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-      write!(f, "{:?}", self)
    }
 }
 
