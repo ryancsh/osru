@@ -26,25 +26,22 @@ pub struct InputManager {
    reference_time: Option<ReferenceTime>,
    //prev_snapshot: InputSnapshot,
    //cur_snapshot: InputSnapshot,
-   pending_snapshots: Option<VecDeque<InputSnapshot>>,
+   pending_snapshots: VecDeque<InputSnapshot>,
 }
 
 impl InputManager {
    pub fn new(event_pump: EventPump) -> InputManager {
-      let mut pending_snapshots = VecDeque::new();
+      let mut pending_snapshots = VecDeque::with_capacity(15);
       pending_snapshots.push_back(InputSnapshot::default());
       pending_snapshots.push_back(InputSnapshot::default());
-      let pending_snapshots = Some(pending_snapshots);
-      let mut result = InputManager {
-         event_pump,
-         keep_running: true,
-         reference_time: None,
-         //prev_snapshot: InputSnapshot::default(),
-         //cur_snapshot: InputSnapshot::default(),
-         pending_snapshots,
-      };
+      let mut result =
+         InputManager { event_pump, keep_running: true, reference_time: None, pending_snapshots };
       result.set_reference_time();
       result
+   }
+
+   pub fn capacity(&self) -> usize {
+      self.pending_snapshots.capacity()
    }
 
    pub fn event_pump(&self) -> &EventPump {
@@ -87,11 +84,11 @@ impl InputManager {
    }
 
    pub fn prev_snapshot(&self) -> &InputSnapshot {
-      &self.pending_snapshots.as_ref().unwrap().get(0).unwrap()
+      &self.pending_snapshots.get(0).unwrap()
    }
 
    pub fn curr_snapshot(&self) -> &InputSnapshot {
-      &self.pending_snapshots.as_ref().unwrap().get(1).unwrap()
+      &self.pending_snapshots.get(1).unwrap()
    }
 
    pub fn reference_time(&self) -> &ReferenceTime {
@@ -99,26 +96,26 @@ impl InputManager {
    }
 
    fn estimate_mouse_pos_from_samples(
-      sample1: &InputSnapshot, sample2: &InputSnapshot, current_time: Duration,
+      old_sample: &InputSnapshot, new_sample: &InputSnapshot, curr_time: Duration,
    ) -> Pix2D {
-      let x_delta = sample2.mouse_position.x().get_mpix() - sample1.mouse_position.x().get_mpix();
-      let y_delta = sample2.mouse_position.y().get_mpix() - sample1.mouse_position.y().get_mpix();
-      let time_delta = sample2.time.as_micros() as isize - sample1.time.as_micros() as isize;
-      let time_from_last = current_time.as_micros() as isize - sample2.time.as_micros() as isize;
+      let x_delta = new_sample.mouse_position.x() - old_sample.mouse_position.x();
+      let y_delta = new_sample.mouse_position.y() - old_sample.mouse_position.y();
+      let time_delta = new_sample.time.as_secs_f32() - old_sample.time.as_secs_f32();
+      let time_from_last = curr_time.as_secs_f32() - new_sample.time.as_secs_f32();
 
-      let new_x = sample2.mouse_position.x().get_mpix() + (x_delta * time_from_last) / time_delta;
-      let new_y = sample2.mouse_position.y().get_mpix() + (y_delta * time_from_last) / time_delta;
+      let new_x = new_sample.mouse_position.x() + (x_delta * time_from_last) / time_delta;
+      let new_y = new_sample.mouse_position.y() + (y_delta * time_from_last) / time_delta;
 
-      Pix2D::new(Pix::screen_mpix(new_x), Pix::screen_mpix(new_y))
+      Pix2D::new(new_x, new_y)
    }
 
    fn push_snapshot(&mut self, snapshot: InputSnapshot) {
-      self.pending_snapshots.as_mut().unwrap().push_back(snapshot);
+      self.pending_snapshots.push_back(snapshot);
    }
 
    fn pop_snapshot(&mut self) -> Option<InputSnapshot> {
       if self.len() > 2 {
-         self.pending_snapshots.as_mut().unwrap().pop_front()
+         self.pending_snapshots.pop_front()
       } else {
          None
       }
@@ -148,11 +145,11 @@ impl InputManager {
    }
 
    fn len(&self) -> usize {
-      self.pending_snapshots.as_ref().unwrap().len()
+      self.pending_snapshots.len()
    }
 
    fn latest_snapshot(&self) -> &InputSnapshot {
-      self.pending_snapshots.as_ref().unwrap().get(self.len() - 1).unwrap()
+      self.pending_snapshots.get(self.len() - 1).unwrap()
    }
 
    pub fn poll_one(&mut self) -> PollResult {
@@ -169,7 +166,7 @@ impl InputManager {
             }
             Event::MouseMotion { timestamp: t, x: x_pos, y: y_pos, .. } => {
                new_snap.mouse_position =
-                  Pix2D::new(Pix::screen_pix(x_pos as isize), Pix::screen_pix(y_pos as isize))
+                  Pix2D::new(Pix::screen_pix(x_pos as f32), Pix::screen_pix(y_pos as f32))
             }
             /*
             Event::MouseButtonDown { .. } => ,

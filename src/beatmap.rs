@@ -18,7 +18,7 @@ pub struct Beatmap {
    pub settings: HashMap<BeatmapSettings, OsruType>,
 
    pub timing_points: Vec<TimingPoint>,
-   pub hitobjects: Vec<Box<dyn HitObject>>,
+   pub hitobjects: Vec<HitObject>,
    pub event_backgrounds: Vec<EventBackground>,
    /*
    pub event_backgrounds : Vec<EventBackground>,
@@ -152,7 +152,7 @@ impl Beatmap {
                   let filename = filename.trim_end_matches("\"");
                   let filename = filename.trim_start_matches("\"");
                   let filename = nstr(filename);
-                  let mut offset_from_center = Pix2D::new(Pix::osru_pix(0), Pix::osru_pix(0));
+                  let mut offset_from_center = Pix2D::new(Pix::osru_pix(0.0), Pix::osru_pix(0.0));
                   if line.len() >= 5 {
                      let x = line[3].trim().parse().unwrap_or_default();
                      let y = line[4].trim().parse().unwrap_or_default();
@@ -198,11 +198,11 @@ impl Beatmap {
                      last_hitobj_pos_y = y;
                      hitobj_stack = 0;
                   }
-                  Pix2D::new(Pix::osru_pix(x), Pix::osru_pix(y))
+                  Pix2D::new(Pix::osru_pix(x as f32), Pix::osru_pix(y as f32))
                };
                let time: isize = line[2].trim().parse().unwrap_or_default();
-               let type_bitflags = line[3].trim().parse::<usize>().unwrap_or_default();
-               let hitsound_bitflags = line[4].trim().parse::<usize>().unwrap_or_default();
+               let type_bitflags = line[3].trim().parse::<u32>().unwrap_or_default();
+               let hitsound_bitflags = line[4].trim().parse::<u32>().unwrap_or_default();
                let hitsounds = OsruHitSounds::from_bitflags(Bitflags(hitsound_bitflags));
                let new_combo = type_bitflags & 0b100 == 0b100;
                let combo_colours_to_skip = (type_bitflags & 0b1110000) >> 4;
@@ -217,7 +217,7 @@ impl Beatmap {
                      hitsounds,
                      ..Default::default()
                   };
-                  beatmap.hitobjects.push(Box::new(h));
+                  beatmap.hitobjects.push(HitObject::HitCircle(h));
                } else if type_bitflags & 0b10 == 0b10 {
                   //slider
                   use OsruCurveType::*;
@@ -271,7 +271,7 @@ impl Beatmap {
                      hitsounds,
                      ..Default::default()
                   };
-                  beatmap.hitobjects.push(Box::new(h));
+                  beatmap.hitobjects.push(HitObject::HitCircle(h));
 
                //println!("slider {:?}", line);
                } else if type_bitflags & 0b1000 == 0b1000 {

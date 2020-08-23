@@ -27,8 +27,8 @@ impl Game {
       let audio = true;
 
       const _MAGIC: &str = "assets/beatmap/magic/Shihori - Magic Girl !! (Frostmourne) [Hard].osu";
-      const _KOI: &str = "assets/beatmap/koi/KOTOKO - Koi Kou Enishi (Crystal) [Hard].osu";
-      let (audio_filename, background_filename, mut b) = Game::start_beatmap(OsruGameMode::Standard, _KOI);
+      const _KOI: &str = "assets/beatmap/koi/KOTOKO - Koi Kou Enishi (Crystal) [Lunatic].osu";
+      let (audio_filename, background_filename, mut b) = Game::start_beatmap(OsruGameMode::Standard, _MAGIC);
       let background_filename = {
          if let Some(filename) = background_filename {
             filename
@@ -71,8 +71,8 @@ impl Game {
          let window = video_subsystem
             .window(
                "Osru",
-               DEFAULT_WINDOW_SIZE_X.get_pix_round() as u32,
-               DEFAULT_WINDOW_SIZE_Y.get_pix_round() as u32,
+               DEFAULT_WINDOW_SIZE.x().get_round() as u32,
+               DEFAULT_WINDOW_SIZE.y().get_round() as u32,
             )
             .vulkan()
             .allow_highdpi()
@@ -93,9 +93,11 @@ impl Game {
       let mut background_texture =
          texture_creator.load_texture(path::Path::new(&background_filename)).unwrap();
 
-      let mut background_texture2 =
+      /*
+         let mut background_texture2 =
          texture_creator.load_texture(path::Path::new("assets/black_pixel.png")).unwrap();
       background_texture2.set_alpha_mod(u8::MAX / 4 * 3);
+      */
 
       //input
       let event_subsys = sdl_context.event().unwrap();
@@ -109,16 +111,15 @@ impl Game {
       let mut hitobj_update_i = 0;
 
       let background_viewport = Pix2D::new(
-         Pix::screen_pix(background_texture.query().width as isize),
-         Pix::screen_pix(background_texture.query().height as isize),
+         Pix::screen_pix(background_texture.query().width as f32),
+         Pix::screen_pix(background_texture.query().height as f32),
       );
 
       let viewport_size = PixRect::new_from_sdl2_rect(canvas.viewport());
       {
          canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
          canvas.clear();
-         display_background_image(&mut canvas, &mut background_texture, false);
-         canvas.copy(&background_texture2, None, None).unwrap();
+         display_background_image(&mut canvas, &mut background_texture, Letterboxing::Deny);
       }
       b.prepare(&viewport_size);
 
@@ -127,6 +128,8 @@ impl Game {
       let mut slowest_draw = Duration::from_secs(0);
       let mut slowest_update = Duration::from_secs(0);
       let mut slowest_frame = Duration::from_secs(0);
+      let mut fastest_draw = Duration::from_secs(10000000);
+      let mut fastest_update = Duration::from_secs(10000000);
       let mut expected_draw_time = Duration::from_secs(0);
       let mut expected_frame_time = Duration::from_secs(0);
       let mut expected_update_time;
@@ -149,15 +152,14 @@ impl Game {
       // main loop
       'renderLoop: loop {
          {
+            use hitobject::{DrawState::*, HitSuccess::*, UpdateResult::*};
             // update
             update_start = Instant::now();
-            use hitobject::{DrawState::*, HitSuccess::*, UpdateResult::*};
             let mut i = hitobj_update_i;
             let mut new_update_i = None;
 
             input_manager.force_time_update();
             'nextObj: loop {
-               input_manager.poll_one();
                if i >= b.hitobjects.len() {
                   while let Some(update) = input_manager.next_update() {}
                   break 'nextObj;
@@ -171,8 +173,10 @@ impl Game {
                            if new_update_i == None {
                               new_update_i = Some(i)
                            }
+                           input_manager.poll_one();
                            continue 'nextObj;
                         }
+                        input_manager.poll_one();
                      }
                      break 'nextObj;
                   }
@@ -183,33 +187,29 @@ impl Game {
             hitobj_update_i = new_update_i.unwrap_or(hitobj_update_i);
 
             let temp = update_start.elapsed();
-            if slowest_update < temp {
+            if fastest_update > temp {
+               fastest_update = temp;
+            } else if slowest_update < temp {
                slowest_update = temp;
             }
-            expected_update_time = (temp * 3 + slowest_update) / 4;
+            expected_update_time = (temp + slowest_update * 2 + fastest_update) / 4;
             run = run && input_manager.is_running();
          }
 
-         if draw_start.elapsed() + expected_draw_time > expected_frame_time * 2 {
+         //if draw_start.elapsed() + expected_draw_time > expected_frame_time * 2 {
+         {
             draw_start = Instant::now();
             //draw background
-            canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
-            canvas.clear();
-            canvas.set_blend_mode(sdl2::render::BlendMode::None);
-            display_background_image(&mut canvas, &mut background_texture, false);
-            canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
-            canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, u8::MAX / 4 * 3));
-            canvas.fill_rect(canvas.viewport()).unwrap();
-            //canvas.copy(&background_texture2, None, None).unwrap();
+            display_background_image(&mut canvas, &mut background_texture, Letterboxing::Deny);
 
-            //input_manager.poll();
-            //let time = input_manager.reference_time().elapsed_sys_time(Instant::now());
             let mut not_draw = true;
             let last_snapshot = input_manager.curr_snapshot().clone();
             let last_update = InputUpdate::new(&last_snapshot, &last_snapshot);
             'update_time: for i in hitobj_start_i..b.hitobjects.len() {
                let h = b.hitobjects.get_mut(i).unwrap();
+               input_manager.poll_one();
                h.update(&last_update, &DEFAULT_ANIMATION_TIMING);
+               input_manager.poll_one();
                let draw_state = h.draw(&mut canvas, &mut texture);
                if not_draw && draw_state == DrawState::Drawing {
                   not_draw = false;
@@ -217,7 +217,6 @@ impl Game {
                } else if draw_state == DrawState::NotYet {
                   break 'update_time;
                }
-               input_manager.poll_one();
             }
             run = run && !not_draw;
 
@@ -230,19 +229,19 @@ impl Game {
             if last_snapshot.K2() {
                canvas.fill_rect(sdl2::rect::Rect::new(2304, 784, 128, 128)).unwrap();
             }
-            input_manager.poll_all();
+            input_manager.poll_one();
             canvas.present();
-            input_manager.poll_all();
+            input_manager.poll_one();
 
             num_frames += 1;
 
             let draw_start_time = draw_start.elapsed();
-            if slowest_draw < draw_start_time {
+            if fastest_draw > draw_start_time {
+               fastest_draw = draw_start_time;
+            } else if slowest_draw < draw_start_time {
                slowest_draw = draw_start_time;
             }
-            expected_draw_time = (draw_start_time * 3 + slowest_draw) / 4;
-
-            draw_start = Instant::now();
+            expected_draw_time = (draw_start_time + slowest_draw * 2 + fastest_draw) / 4;
          }
 
          if !run {
@@ -257,13 +256,18 @@ impl Game {
             }
          }
 
-         let current_frame_time = update_start.elapsed();
          expected_frame_time = expected_draw_time + expected_update_time;
+         let current_frame_time = update_start.elapsed();
          if slowest_frame < current_frame_time {
             slowest_frame = current_frame_time;
          }
-         input_manager.poll_all();
-         thread::yield_now();
+
+         const FPS_LIMIT:Duration = Duration::from_nanos(1_000_000_000 / 6);
+         expected_frame_time = FPS_LIMIT;
+         while update_start.elapsed() < expected_frame_time {
+            input_manager.poll_all();
+            thread::yield_now();
+         }
       }
       let total_time = input_manager.reference_time().elapsed_sys_time(Instant::now()).as_secs_f64();
       println!(
@@ -293,6 +297,7 @@ impl Game {
             "Great: {}, Good: {}, Meh: {}, Miss: {}, Unknown: {}",
             num_great, num_good, num_meh, num_miss, num_unknown
          );
+         println!("Capacity: {}", input_manager.capacity());
       }
       t.join().unwrap();
    }

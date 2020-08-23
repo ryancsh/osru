@@ -1,41 +1,46 @@
 use std::mem;
 use std::ops;
 
-pub const PIXEL_PRECISION: isize = 1024;
+pub const DEFAULT_WINDOW_SIZE: Pix2D = Pix2D { x: Pix::ScreenPix(640.0), y: Pix::ScreenPix(480.0) };
+//pub const DEFAULT_WINDOW_SIZE_Y: Pix = Pix::ScreenPix(480.0);
 
-pub const DEFAULT_WINDOW_SIZE_X: Pix = Pix::ScreenPix(640 * PIXEL_PRECISION);
-pub const DEFAULT_WINDOW_SIZE_Y: Pix = Pix::ScreenPix(480 * PIXEL_PRECISION);
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum Pix {
-   OsruPix(isize),
-   ScreenPix(isize),
+   OsruPix(f32),
+   ScreenPix(f32),
 }
 impl Pix {
-   pub fn screen_pix(value: isize) -> Pix {
-      Pix::screen_mpix(value * PIXEL_PRECISION as isize)
-   }
-   pub fn screen_mpix(value: isize) -> Pix {
+   pub fn screen_pix(value: f32) -> Pix {
       Pix::ScreenPix(value)
    }
-   pub fn osru_pix(value: isize) -> Pix {
-      Pix::osru_mpix(value * PIXEL_PRECISION as isize)
-   }
-   pub fn osru_mpix(value: isize) -> Pix {
+   pub fn osru_pix(value: f32) -> Pix {
       Pix::OsruPix(value)
    }
-
-   pub fn get_pix_round(&self) -> isize {
-      (self.get_mpix() as f32 / PIXEL_PRECISION as f32).round() as isize
+   pub fn get_round(&self) -> i32 {
+      self.get().round() as i32
    }
-   pub fn get_pix_trunc(&self) -> isize {
-      self.get_mpix() / PIXEL_PRECISION as isize
+   pub fn get_trunc(&self) -> i32 {
+      self.get() as i32
    }
-   pub fn get_mpix(&self) -> isize {
+   pub fn get(&self) -> f32 {
       use Pix::*;
       match self {
          OsruPix(value) => *value,
          ScreenPix(value) => *value,
+      }
+   }
+   pub fn to_osru_pix(&self) -> Pix {
+      use Pix::*;
+      match self {
+         ScreenPix(value) => Pix::OsruPix(*value),
+         OsruPix(_) => panic![],
+      }
+   }
+   pub fn to_screen_pix(&self) -> Pix {
+      use Pix::*;
+      match self {
+         OsruPix(value) => Pix::ScreenPix(*value),
+         ScreenPix(_) => panic![],
       }
    }
 }
@@ -46,7 +51,7 @@ impl ops::Add for Pix {
       match (self, rhs) {
          (OsruPix(a), OsruPix(b)) => OsruPix(a + b),
          (ScreenPix(a), ScreenPix(b)) => ScreenPix(a + b),
-         _ => panic![],
+         _ => panic!("Adding different types of pixels: {:?} {:?}", self, rhs),
       }
    }
 }
@@ -57,25 +62,23 @@ impl ops::Sub for Pix {
       match (self, rhs) {
          (OsruPix(a), OsruPix(b)) => OsruPix(a - b),
          (ScreenPix(a), ScreenPix(b)) => ScreenPix(a - b),
-         _ => panic![],
+         _ => panic!("Subtracting different types of pixels: {:?} {:?}", self, rhs),
       }
    }
 }
-/*
-impl ops::Mul for Pix {
-   type Output = Pix;
-   fn mul(self, rhs: Self) -> Self::Output {
-      use Pix::*;
-      match (self, rhs) {
-         (OsruPix(a), OsruPix(b)) => OsruPix(a * b / PIXEL_PRECISION),
-         (ScreenPix(a), ScreenPix(b)) => ScreenPix(a * b / PIXEL_PRECISION),
-         _ => panic![],
-      }
-   }
-}*/
 impl ops::Mul<isize> for Pix {
    type Output = Pix;
    fn mul(self, rhs: isize) -> Self::Output {
+      use Pix::*;
+      match self {
+         OsruPix(a) => OsruPix(a * rhs as f32),
+         ScreenPix(a) => ScreenPix(a * rhs as f32),
+      }
+   }
+}
+impl ops::Mul<f32> for Pix {
+   type Output = Pix;
+   fn mul(self, rhs: f32) -> Self::Output {
       use Pix::*;
       match self {
          OsruPix(a) => OsruPix(a * rhs),
@@ -83,21 +86,19 @@ impl ops::Mul<isize> for Pix {
       }
    }
 }
-/*
-impl ops::Div for Pix {
-   type Output = Pix;
-   fn div(self, rhs: Self) -> Self::Output {
-      use Pix::*;
-      match (self, rhs) {
-         (OsruPix(a), OsruPix(b)) => OsruPix(a * PIXEL_PRECISION / b),
-         (ScreenPix(a), ScreenPix(b)) => ScreenPix(a * PIXEL_PRECISION/ b),
-         _ => panic![],
-      }
-   }
-}*/
 impl ops::Div<isize> for Pix {
    type Output = Pix;
    fn div(self, rhs: isize) -> Self::Output {
+      use Pix::*;
+      match self {
+         OsruPix(a) => OsruPix(a / rhs as f32),
+         ScreenPix(a) => ScreenPix(a / rhs as f32),
+      }
+   }
+}
+impl ops::Div<f32> for Pix {
+   type Output = Pix;
+   fn div(self, rhs: f32) -> Self::Output {
       use Pix::*;
       match self {
          OsruPix(a) => OsruPix(a / rhs),
@@ -113,6 +114,7 @@ pub struct Pix2D {
 }
 impl Pix2D {
    fn validate(x: &Pix, y: &Pix) {
+      #[cold]
       if mem::discriminant(x) != mem::discriminant(y) {
          panic![];
       }
@@ -128,16 +130,23 @@ impl Pix2D {
       self.y = y;
    }
    pub fn default_screen() -> Pix2D {
-      Pix2D { x: Pix::ScreenPix(0), y: Pix::ScreenPix(0) }
+      Pix2D { x: Pix::ScreenPix(0.0), y: Pix::ScreenPix(0.0) }
    }
    pub fn default_osru() -> Pix2D {
-      Pix2D { x: Pix::OsruPix(0), y: Pix::OsruPix(0) }
+      Pix2D { x: Pix::OsruPix(0.0), y: Pix::OsruPix(0.0) }
    }
    pub fn x(&self) -> Pix {
       self.x
    }
    pub fn y(&self) -> Pix {
       self.y
+   }
+
+   pub fn to_osru_pix(&self) -> Pix2D {
+      Pix2D { x: self.x().to_osru_pix(), y: self.y().to_osru_pix() }
+   }
+   pub fn to_screen_pix(&self) -> Pix2D {
+      Pix2D { x: self.x().to_screen_pix(), y: self.y().to_screen_pix() }
    }
 }
 impl ops::Add for Pix2D {
@@ -176,19 +185,19 @@ impl PixRect {
 
    pub fn new_from_sdl2_rect(sdl2_rect: sdl2::rect::Rect) -> PixRect {
       PixRect::new(
-         Pix::screen_pix(sdl2_rect.x() as isize),
-         Pix::screen_pix(sdl2_rect.y() as isize),
-         Pix::screen_pix(sdl2_rect.width() as isize),
-         Pix::screen_pix(sdl2_rect.height() as isize),
+         Pix::screen_pix(sdl2_rect.x() as f32),
+         Pix::screen_pix(sdl2_rect.y() as f32),
+         Pix::screen_pix(sdl2_rect.width() as f32),
+         Pix::screen_pix(sdl2_rect.height() as f32),
       )
    }
 
    pub fn to_sdl2_rect(&self) -> sdl2::rect::Rect {
       sdl2::rect::Rect::new(
-         self.x().get_pix_round() as i32,
-         self.y().get_pix_round() as i32,
-         self.width().get_pix_round() as u32,
-         self.height().get_pix_round() as u32,
+         self.x().get_round() as i32,
+         self.y().get_round() as i32,
+         self.width().get_round() as u32,
+         self.height().get_round() as u32,
       )
    }
 

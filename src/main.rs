@@ -10,6 +10,7 @@ mod global;
 mod input;
 mod time;
 
+use enum_dispatch::enum_dispatch;
 use global::*;
 use sdl2::event::*;
 

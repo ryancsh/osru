@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime};
 
 pub const DEFAULT_MASTER_VOLUME: f32 = 0.40;
 pub const DEFAULT_TRACK_VOLUME: f32 = 0.40;
-pub const AUDIO_REFERENCE_POWER: usize = 4000;
+pub const AUDIO_REFERENCE_POWER: u32 = 4000;
 pub const AUDIO_NORMALIZE: bool = true;
 
 pub const INTERPOLATE_MOUSE_POSITION: bool = false;
@@ -36,7 +36,7 @@ pub static DEFAULT_ANIMATION_TIMING: AnimationTiming = AnimationTiming {
    timing_meh: TIMING_WINDOW_MEH,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Colour<T> {
    pub r: T,
    pub g: T,
@@ -45,7 +45,7 @@ pub struct Colour<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Bitflags(pub usize);
+pub struct Bitflags(pub u32);
 #[derive(Debug, Clone)]
 pub struct Volume(pub f32);
 impl ops::Mul for Volume {
@@ -103,11 +103,11 @@ impl OsruHitSounds {
 }
 
 #[derive(Debug, Clone)]
-pub struct OsruOD(pub f64);
+pub struct OsruOD(pub f32);
 #[derive(Debug, Clone)]
-pub struct OsruAR(pub f64);
+pub struct OsruAR(pub f32);
 #[derive(Debug, Clone)]
-pub struct OsruCS(pub f64);
+pub struct OsruCS(pub f32);
 
 #[derive(Debug, Clone)]
 pub struct AnimationTiming {
@@ -122,10 +122,10 @@ pub struct TimeBarrier {}
 
 #[derive(Debug, Clone)]
 pub enum OsruType {
-   Integer(isize),
+   Integer(i32),
    Text(String),
-   Decimal(f64),
-   BitFlag(usize),
+   Decimal(f32),
+   BitFlag(u32),
    List(Vec<OsruType>),
 }
 impl OsruType {
@@ -133,7 +133,7 @@ impl OsruType {
       use OsruType::*;
       match old_value {
          Integer(_) => {
-            let value = value.parse::<isize>();
+            let value = value.parse::<i32>();
             if let Ok(value) = value {
                Some(Integer(value))
             } else {
@@ -141,7 +141,7 @@ impl OsruType {
             }
          }
          Decimal(_) => {
-            let value = value.parse::<f64>();
+            let value = value.parse::<f32>();
             if let Ok(value) = value {
                Some(Decimal(value))
             } else {
@@ -149,7 +149,7 @@ impl OsruType {
             }
          }
          BitFlag(_) => {
-            let value = value.parse::<usize>();
+            let value = value.parse::<u32>();
             if let Ok(value) = value {
                Some(BitFlag(value))
             } else {
@@ -210,7 +210,7 @@ impl OsruType {
       }
    }
 
-   pub fn parse_as_int(&self) -> isize {
+   pub fn parse_as_int(&self) -> i32 {
       if let OsruType::Integer(value) = self {
          *value
       } else {
@@ -226,7 +226,7 @@ impl OsruType {
       }
    }
 
-   pub fn parse_as_dec(&self) -> f64 {
+   pub fn parse_as_dec(&self) -> f32 {
       if let OsruType::Decimal(value) = self {
          *value
       } else {
@@ -234,7 +234,7 @@ impl OsruType {
       }
    }
 
-   pub fn parse_as_bitflag(&self) -> isize {
+   pub fn parse_as_bitflag(&self) -> i32 {
       if let OsruType::Integer(value) = self {
          *value
       } else {
@@ -275,26 +275,39 @@ pub fn mergestr(s1: &str, s2: &str) -> String {
    result
 }
 
-pub fn circle_pos_wrt_window(
-   circle_pos: &Pix2D, image_size: &Pix2D, viewport_size: &PixRect, scale_image: bool,
-) -> PixRect {
-   const SCALING_RATIO_PRECISION: isize = 512;
+#[derive(Eq, PartialEq)]
+pub enum Letterboxing {
+   Allow,
+   Deny,
+}
 
-   let x_ratio =
-      (viewport_size.width().get_mpix() * SCALING_RATIO_PRECISION) / DEFAULT_WINDOW_SIZE_X.get_mpix();
-   let y_ratio =
-      (viewport_size.height().get_mpix() * SCALING_RATIO_PRECISION) / DEFAULT_WINDOW_SIZE_Y.get_mpix();
+pub fn scaling_factor(assumed_size: &Pix2D, screen_viewport: &PixRect, letterboxing: Letterboxing) -> f32 {
+   let x_ratio = screen_viewport.width().get() / assumed_size.x().get();
+   let y_ratio = screen_viewport.height().get() / assumed_size.y().get();
 
-   let scaling_factor = {
-      if x_ratio > y_ratio {
+   use Letterboxing::*;
+   if x_ratio > y_ratio {
+      if letterboxing == Allow {
          y_ratio
       } else {
          x_ratio
       }
-   };
+   } else {
+      if letterboxing == Allow {
+         x_ratio
+      } else {
+         y_ratio
+      }
+   }
+}
 
-   let new_viewport_width = (DEFAULT_WINDOW_SIZE_X * scaling_factor) / SCALING_RATIO_PRECISION;
-   let new_viewport_height = (DEFAULT_WINDOW_SIZE_Y * scaling_factor) / SCALING_RATIO_PRECISION;
+pub fn circle_pos_wrt_window(
+   circle_pos: &Pix2D, image_size: &Pix2D, viewport_size: &PixRect, scale_image: bool,
+) -> PixRect {
+   let scaling_factor = scaling_factor(&DEFAULT_WINDOW_SIZE, viewport_size, Letterboxing::Allow);
+
+   let new_viewport_width = DEFAULT_WINDOW_SIZE.x() * scaling_factor;
+   let new_viewport_height = DEFAULT_WINDOW_SIZE.y() * scaling_factor;
 
    let new_viewport_offset_x = (viewport_size.width() - new_viewport_width) / 2;
    let new_viewport_offset_y = (viewport_size.height() - new_viewport_height) / 2;
@@ -303,57 +316,44 @@ pub fn circle_pos_wrt_window(
       if scale_image {
          scaling_factor
       } else {
-         SCALING_RATIO_PRECISION
+         1.0
       }
    };
 
-   let new_image_width = (image_size.x() * image_scaling) / SCALING_RATIO_PRECISION;
-   let new_image_height = (image_size.y() * image_scaling) / SCALING_RATIO_PRECISION;
+   let new_image_width = image_size.x() * image_scaling;
+   let new_image_height = image_size.y() * image_scaling;
 
-   let mut new_image_pos_x =
-      (Pix::screen_mpix(circle_pos.x().get_mpix()) * scaling_factor) / SCALING_RATIO_PRECISION;
-   new_image_pos_x = new_image_pos_x - new_image_width / 2 + new_viewport_offset_x;
+   let circle_pos = circle_pos.to_screen_pix();
+   let mut new_image_pos_x = circle_pos.x() * scaling_factor;
+   new_image_pos_x = new_image_pos_x + new_viewport_offset_x - new_image_width / 2;
 
-   let mut new_image_pos_y =
-      (Pix::screen_mpix(circle_pos.y().get_mpix()) * scaling_factor) / SCALING_RATIO_PRECISION;
-   new_image_pos_y = new_image_pos_y - new_image_height / 2 + new_viewport_offset_y;
+   let mut new_image_pos_y = circle_pos.y() * scaling_factor;
+   new_image_pos_y = new_image_pos_y + new_viewport_offset_y - new_image_height / 2;
 
    PixRect::new(new_image_pos_x, new_image_pos_y, new_image_width, new_image_height)
 }
 
-pub fn convert_osru_coordinates(osru_coord: &Pix2D, viewport_size: &PixRect) -> Pix2D {
-   const SCALING_RATIO_PRECISION: isize = 512;
+pub fn osru_pos_to_screen_pos(osru_coord: &Pix2D, viewport_size: &PixRect) -> Pix2D {
+   let scaling_factor = scaling_factor(&DEFAULT_WINDOW_SIZE, viewport_size, Letterboxing::Allow);
 
-   let x_ratio =
-      (viewport_size.width().get_mpix() * SCALING_RATIO_PRECISION) / DEFAULT_WINDOW_SIZE_X.get_mpix();
-   let y_ratio =
-      (viewport_size.height().get_mpix() * SCALING_RATIO_PRECISION) / DEFAULT_WINDOW_SIZE_Y.get_mpix();
-   let scaling_factor = {
-      if x_ratio > y_ratio {
-         y_ratio
-      } else {
-         x_ratio
-      }
-   };
-   let new_viewport_width = (DEFAULT_WINDOW_SIZE_X * scaling_factor) / SCALING_RATIO_PRECISION;
-   let new_viewport_height = (DEFAULT_WINDOW_SIZE_Y * scaling_factor) / SCALING_RATIO_PRECISION;
+   let new_viewport_width = DEFAULT_WINDOW_SIZE.x() * scaling_factor;
+   let new_viewport_height = DEFAULT_WINDOW_SIZE.y() * scaling_factor;
 
    let new_viewport_offset_x = (viewport_size.width() - new_viewport_width) / 2;
    let new_viewport_offset_y = (viewport_size.height() - new_viewport_height) / 2;
 
-   let new_coord_x = (osru_coord.x() * scaling_factor).get_mpix() / SCALING_RATIO_PRECISION
-      + new_viewport_offset_x.get_mpix();
-   let new_coord_y = (osru_coord.y() * scaling_factor).get_mpix() / SCALING_RATIO_PRECISION
-      + new_viewport_offset_y.get_mpix();
+   let osru_coord = osru_coord.to_screen_pix();
+   let new_coord_x = osru_coord.x() * scaling_factor + new_viewport_offset_x;
+   let new_coord_y = osru_coord.y() * scaling_factor + new_viewport_offset_y;
 
-   Pix2D::new(Pix::screen_mpix(new_coord_x), Pix::screen_mpix(new_coord_y))
+   Pix2D::new(new_coord_x, new_coord_y)
 }
 
 pub fn is_mouse_pos_in_range(circle_pos: &Pix2D, mouse_pos: &Pix2D, radius: &Pix) -> bool {
    let diff = *circle_pos - *mouse_pos;
-   let x_sq = diff.x().get_pix_trunc().pow(2);
-   let y_sq = diff.y().get_pix_trunc().pow(2);
-   let r_sq = radius.get_pix_trunc().pow(2);
+   let x_sq = diff.x().get().powi(2);
+   let y_sq = diff.y().get().powi(2);
+   let r_sq = radius.get().powi(2);
    if r_sq >= x_sq + y_sq {
       true
    } else {
@@ -362,48 +362,25 @@ pub fn is_mouse_pos_in_range(circle_pos: &Pix2D, mouse_pos: &Pix2D, radius: &Pix
 }
 
 pub fn display_background_image(
-   canvas: &mut sdl2::render::WindowCanvas, texture: &mut sdl2::render::Texture, allow_letterbox: bool,
+   canvas: &mut sdl2::render::WindowCanvas, texture: &mut sdl2::render::Texture, letterboxing: Letterboxing,
 ) {
-   const SCALING_RATIO_PRECISION: isize = 512;
+   //use pixel::*;
+   let screen_viewport = PixRect::new_from_sdl2_rect(canvas.viewport());
 
-   let mut image_width = texture.query().width as isize;
-   let mut image_height = texture.query().height as isize;
+   let image_size =
+      Pix2D::new(Pix::ScreenPix(texture.query().width as f32), Pix::ScreenPix(texture.query().height as f32));
+   let scaling_factor = scaling_factor(&image_size, &screen_viewport, letterboxing);
 
-   let viewport_width = canvas.viewport().width() as isize;
-   let viewport_height = canvas.viewport().height() as isize;
+   let image_size = Pix2D::new(image_size.x() * scaling_factor, image_size.y() * scaling_factor);
 
-   let scaling_factor_x = (viewport_width * SCALING_RATIO_PRECISION) / image_width;
-   let scaling_factor_y = (viewport_height * SCALING_RATIO_PRECISION) / image_height;
+   let image_offset_x = (screen_viewport.width() - image_size.x()) / 2;
+   let image_offset_y = (screen_viewport.height() - image_size.y()) / 2;
 
-   let scaling_factor = {
-      if scaling_factor_x > scaling_factor_y {
-         if allow_letterbox {
-            scaling_factor_y
-         } else {
-            scaling_factor_x
-         }
-      } else {
-         if allow_letterbox {
-            scaling_factor_x
-         } else {
-            scaling_factor_y
-         }
-      }
-   };
-
-   image_width = (image_width * scaling_factor) / SCALING_RATIO_PRECISION;
-   image_height = (image_height * scaling_factor) / SCALING_RATIO_PRECISION;
-
-   let image_offset_x = (viewport_width - image_width) / 2;
-   let image_offset_y = (viewport_height - image_height) / 2;
-
-   let dst_viewport = PixRect::new(
-      Pix::screen_pix(image_offset_x),
-      Pix::screen_pix(image_offset_y),
-      Pix::screen_pix(image_width),
-      Pix::screen_pix(image_height),
-   )
-   .to_sdl2_rect();
+   let dst_viewport =
+      PixRect::new(image_offset_x, image_offset_y, image_size.x(), image_size.y()).to_sdl2_rect();
 
    canvas.copy(&texture, None, Some(dst_viewport)).unwrap();
+   canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+   canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, u8::MAX / 4 * 3));
+   canvas.fill_rect(canvas.viewport()).unwrap();
 }
