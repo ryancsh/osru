@@ -19,6 +19,16 @@ use sdl2::{
 use std::fmt;
 use std::time::{Duration, SystemTime};
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, IntoEnumIterator)]
+pub enum UpdateResult {
+   InputConsumed,
+   InputNotConsumed,
+}
+#[derive(Debug, Copy, Clone, Eq, PartialEq, IntoEnumIterator)]
+pub enum DrawResult {
+   Drawed,
+   NotDrawed,
+}
 #[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum HitSuccess {
    Meh,
@@ -98,12 +108,6 @@ impl Default for HitState {
    }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, IntoEnumIterator)]
-pub enum UpdateResult {
-   InputConsumed,
-   InputNotConsumed,
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct HitObjectScale(pub f32);
 
@@ -112,6 +116,7 @@ pub const COLOUR_GOOD: Colour<u8> = Colour { r: 141, g: 221, b: 0, a: 128 };
 pub const COLOUR_MEH: Colour<u8> = Colour { r: 255, g: 159, b: 0, a: 128 };
 pub const COLOUR_MISS: Colour<u8> = Colour { r: 255, g: 39, b: 53, a: 128 };
 
+#[derive(Debug, Clone)]
 pub enum HitObject {
    HitCircle(HitCircle),
    Slider(Slider),
@@ -133,7 +138,9 @@ impl HitObject {
       }
    }
 
-   pub fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> HitState {
+   // fn reset()
+
+   pub fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> DrawResult {
       use HitObject::*;
       match self {
          HitCircle(hit_circle) => hit_circle.draw(canvas, texture),

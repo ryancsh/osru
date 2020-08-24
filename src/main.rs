@@ -10,7 +10,9 @@ mod global;
 mod input;
 mod time;
 
-use enum_dispatch::enum_dispatch;
+extern crate enum_iterator;
+use enum_iterator::IntoEnumIterator;
+
 use global::*;
 use sdl2::event::*;
 

@@ -1,18 +1,19 @@
-use crate::{audio, global::pixel::*, global::*};
-use hitobject::*;
+use crate::*;
 
 pub mod event;
 pub mod hitobject;
 pub mod settings;
 
+use event::*;
+use global::pixel::*;
+use hitobject::*;
+use input::*;
+use settings::*;
+
 use std::time::{Duration, SystemTime};
 use std::{any, clone, cmp, collections::HashMap, fmt, fs, slice};
 
-extern crate enum_iterator;
-use enum_iterator::IntoEnumIterator;
-
-use event::*;
-use settings::*;
+use sdl2::render::{Texture, WindowCanvas};
 
 pub struct Beatmap {
    pub settings: HashMap<BeatmapSettings, OsruType>,
@@ -27,6 +28,9 @@ pub struct Beatmap {
    // storyboard
    pub beatmap_colours: Vec<BeatmapColour>,
    */
+   update_start_index: usize,
+   draw_start_index: usize,
+   draw_end_index: usize,
 }
 impl Beatmap {
    fn new() -> Beatmap {
@@ -96,6 +100,9 @@ impl Beatmap {
          beatmap_colours: vec![],
          //hitobjects
          */
+         update_start_index: 0,
+         draw_start_index: 0,
+         draw_end_index: 0,
       }
    }
 
@@ -275,7 +282,7 @@ impl Beatmap {
                      length_of_slider,
                      ..Default::default()
                   };
-                  beatmap.hitobjects.push(HitObject::Slider(slider));
+               //beatmap.hitobjects.push(HitObject::Slider(slider));
 
                //println!("slider {:?}", line);
                } else if type_bitflags & 0b1000 == 0b1000 {
@@ -299,7 +306,7 @@ impl Beatmap {
       beatmap
    }
 
-   pub fn get(&self, setting_name: BeatmapSettings) -> Option<&OsruType> {
+   pub fn get_setting(&self, setting_name: BeatmapSettings) -> Option<&OsruType> {
       if let Some(setting) = self.settings.get(&setting_name) {
          Some(&setting)
       } else {
@@ -311,6 +318,71 @@ impl Beatmap {
       for hitobj in self.hitobjects.iter_mut() {
          hitobj.prepare(viewport_size);
       }
+   }
+
+   pub fn lazy_update(&mut self, input_manager: &mut InputManager) {
+      use hitobject::UpdateResult::*;
+
+      let mut i = self.update_start_index;
+
+      input_manager.poll_all();
+
+      'nextObj: while self.update_start_index < self.hitobjects.len() {
+         input_manager.poll_one();
+         let hitobj = self.hitobjects.get_mut(self.update_start_index).unwrap();
+         if hitobj.hit_state().is_ready() || hitobj.hit_state().not_yet_drawing() {
+            if let Some(update) = input_manager.next_update() {
+               if hitobj.update(&update) == InputConsumed {
+                  self.update_start_index += 1;
+               }
+            } else {
+               break 'nextObj;
+            }
+         } else {
+            self.update_start_index += 1;
+         }
+      }
+   }
+
+   pub fn full_update(&mut self, input_manager: &mut InputManager) {
+      input_manager.force_time_update();
+      self.lazy_update(input_manager);
+
+      let update = InputUpdate::new(input_manager.curr_snapshot(), input_manager.curr_snapshot());
+
+      let draw_start_index = self.draw_start_index;
+      self.draw_start_index = usize::MAX;
+
+      for i in draw_start_index..self.hitobjects.len() {
+         let hitobj = self.hitobjects.get_mut(i).unwrap();
+         hitobj.update(&update);
+         if !hitobj.hit_state().is_done() {
+            if i < self.draw_start_index {
+               self.draw_start_index = i;
+            }
+            if i > self.draw_end_index {
+               self.draw_end_index = i;
+            }
+            if hitobj.hit_state().not_yet_drawing() {
+               break;
+            }
+         }
+      }
+   }
+
+   pub fn draw(&mut self, canvas: &mut WindowCanvas, texture: &mut Texture) {
+      use DrawResult::*;
+      let mut result = NotDrawed;
+
+      for i in self.draw_start_index..self.draw_end_index {
+         self.hitobjects.get(i).unwrap().draw(canvas, texture);
+         result = Drawed;
+      }
+   }
+
+   pub fn is_done(&self) -> bool {
+      self.draw_start_index >= self.hitobjects.len() - 1
+         && self.hitobjects.get(self.hitobjects.len() - 1).unwrap().hit_state().is_done()
    }
 }
 

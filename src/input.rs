@@ -121,6 +121,11 @@ impl InputManager {
       }
    }
 
+   pub fn clear(&mut self) {
+      self.poll_all();
+      while let Some(_) = self.pop_snapshot() {}
+   }
+
    pub fn next_update(&mut self) -> Option<InputUpdate> {
       if let Some(snapshot) = self.pop_snapshot() {
          Some(self.last_update())

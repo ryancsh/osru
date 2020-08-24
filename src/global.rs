@@ -28,6 +28,7 @@ pub const TIMING_WINDOW_MEH_MULTIPLIER: Duration = Duration::from_micros(10_000)
 pub const BEATMAP_TIMING_OFFSET: Duration = Duration::from_secs(2);
 pub const HITCIRCLE_MAX_OPACITY: u128 = 128;
 
+pub const LIMIT_FPS: bool = true;
 pub const TIME_PER_FRAME: Duration = Duration::from_nanos(999_999_999 / 144);
 
 pub static mut USER_EVENT_TYPE: u32 = 0;
@@ -342,10 +343,11 @@ pub fn cursor_in_range(circle_pos: &Pix2D, cursor_pos: &Pix2D, radius: &Pix) -> 
    }
 }
 
+pub fn clear_display() {}
+
 pub fn display_background_image(
    canvas: &mut sdl2::render::WindowCanvas, texture: &mut sdl2::render::Texture, letterboxing: Letterboxing,
 ) {
-   //use pixel::*;
    let screen_viewport = PixRect::new_from_sdl2_rect(canvas.viewport());
 
    let image_size =
@@ -360,6 +362,9 @@ pub fn display_background_image(
    let dst_viewport =
       PixRect::new(image_offset_x, image_offset_y, image_size.x(), image_size.y()).to_sdl2_rect();
 
+   canvas.set_blend_mode(sdl2::render::BlendMode::None);
+   canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 255));
+   canvas.clear();
    canvas.copy(&texture, None, Some(dst_viewport)).unwrap();
    canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
    canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, u8::MAX / 4 * 3));

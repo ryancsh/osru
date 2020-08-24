@@ -92,8 +92,8 @@ impl HitCircle {
       self.circle_pos_to_window = osru_pos_to_screen_pos(&self.position, viewport_size);
    }
 
-   pub fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> HitState {
-      use HitState::*;
+   pub fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> DrawResult {
+      use DrawResult::*;
       if self.hit_state.is_drawing() {
          texture.set_alpha_mod(self.colour.a);
          texture.set_color_mod(self.colour.r, self.colour.g, self.colour.b);
@@ -109,8 +109,10 @@ impl HitCircle {
             self.scale,
          );
          canvas.copy(texture, None, viewport.to_sdl2_rect()).unwrap();
+         Drawed
+      } else {
+         NotDrawed
       }
-      self.hit_state
    }
 
    pub fn hit_state(&self) -> HitState {
@@ -120,6 +122,8 @@ impl HitCircle {
    pub fn time(&self) -> Duration {
       self.time
    }
+
+   // fn reset()
 }
 impl Default for HitCircle {
    fn default() -> Self {

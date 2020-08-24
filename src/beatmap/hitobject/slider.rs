@@ -13,6 +13,7 @@ impl Default for SliderCurveType {
    }
 }
 
+#[derive(Debug, Clone)]
 pub struct Slider {
    pub curve_points: Vec<Pix2D>,
    pub time: Duration,
@@ -114,8 +115,8 @@ impl Slider {
       // TODO: convert slider length to screen coordinates
    }
 
-   pub fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> HitState {
-      use HitState::*;
+   pub fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> DrawResult {
+      use DrawResult::*;
       if self.hit_state.is_drawing() {
          texture.set_alpha_mod(self.colour.a);
          texture.set_color_mod(self.colour.r, self.colour.g, self.colour.b);
@@ -141,8 +142,10 @@ impl Slider {
                canvas.copy(texture, None, viewport.to_sdl2_rect()).unwrap();
             }
          }
+         Drawed
+      } else {
+         NotDrawed
       }
-      self.hit_state
    }
 
    pub fn hit_state(&self) -> HitState {

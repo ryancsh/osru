@@ -102,8 +102,6 @@ impl Game {
       let mut input_manager = input::InputManager::new(event_pump);
 
       // other stuff
-      let mut hitobj_start_i = 0;
-      let mut hitobj_update_i = 0;
 
       let background_viewport = Pix2D::new(
          Pix::screen_pix(background_texture.query().width as f32),
@@ -137,81 +135,33 @@ impl Game {
 
       // main loop
       'renderLoop: loop {
-         {
-            use hitobject::{HitState::*, HitSuccess::*, UpdateResult::*};
-            // update
-            let mut i = hitobj_update_i;
-            let mut new_update_i = None;
-            input_manager.force_time_update();
-            'nextObj: while i < b.hitobjects.len() {
-               input_manager.poll_one();
-               let hitobj = b.hitobjects.get_mut(i).unwrap();
-               if hitobj.hit_state().not_yet_drawing() || hitobj.hit_state().is_ready() {
-                  while let Some(update) = input_manager.next_update() {
-                     if hitobj.update(&update) == InputConsumed {
-                        i += 1;
-                        if new_update_i == None {
-                           new_update_i = Some(i)
-                        }
-                        continue 'nextObj;
-                     }
-                     input_manager.poll_one();
-                  }
-                  break 'nextObj;
-               } else if hitobj.hit_state().is_hit() || hitobj.hit_state().is_done() {
-                  i += 1;
-               }
-            }
-            hitobj_update_i = new_update_i.unwrap_or(hitobj_update_i);
-            if i >= b.hitobjects.len() {
-               while let Some(update) = input_manager.next_update() {}
-            }
+         let frame_start = Instant::now();
+
+         b.full_update(&mut input_manager);
+
+         display_background_image(&mut canvas, &mut background_texture, Letterboxing::Deny);
+         b.draw(&mut canvas, &mut texture);
+         run = run && !b.is_done();
+
+         input_manager.poll_all();
+
+         //draw keypresses
+         let last_snapshot = input_manager.curr_snapshot();
+         canvas.set_draw_color(pixels::Color::RGBA(255, 255, 255, u8::MAX / 2));
+         canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+         if last_snapshot.K1() {
+            canvas.fill_rect(sdl2::rect::Rect::new(2304, 656, 128, 128)).unwrap();
          }
-
-         {
-            //draw background
-            canvas.set_blend_mode(sdl2::render::BlendMode::None);
-            canvas.set_draw_color(pixels::Color::RGBA(255, 255, 255, 255));
-            canvas.clear();
-            input_manager.poll_one();
-            canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
-            display_background_image(&mut canvas, &mut background_texture, Letterboxing::Deny);
-            let mut not_draw = true;
-            let last_snapshot = input_manager.curr_snapshot().clone();
-            let last_update = InputUpdate::new(&last_snapshot, &last_snapshot);
-            'update_time: for i in hitobj_start_i..b.hitobjects.len() {
-               input_manager.poll_one();
-               let h = b.hitobjects.get_mut(i).unwrap();
-               h.update(&last_update);
-               let draw_state = h.draw(&mut canvas, &mut texture);
-               if not_draw && draw_state.is_drawing() {
-                  not_draw = false;
-                  hitobj_start_i = i;
-               } else if draw_state == HitState::NotDrawing {
-                  break 'update_time;
-               }
-            }
-            run = run && !not_draw;
-
-            //draw keypresses
-            canvas.set_draw_color(pixels::Color::RGBA(255, 255, 255, u8::MAX / 2));
-            canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
-            if last_snapshot.K1() {
-               input_manager.poll_one();
-               canvas.fill_rect(sdl2::rect::Rect::new(2304, 656, 128, 128)).unwrap();
-            }
-            if last_snapshot.K2() {
-               input_manager.poll_one();
-               canvas.fill_rect(sdl2::rect::Rect::new(2304, 784, 128, 128)).unwrap();
-            }
-            input_manager.poll_all();
-            canvas.present();
-            input_manager.poll_all();
-            thread::yield_now();
-            input_manager.poll_all();
-
-            num_frames += 1;
+         if last_snapshot.K2() {
+            canvas.fill_rect(sdl2::rect::Rect::new(2304, 784, 128, 128)).unwrap();
          }
+         input_manager.poll_all();
+         canvas.present();
+         input_manager.poll_all();
+         thread::yield_now();
+         input_manager.poll_all();
+
+         num_frames += 1;
 
          run = run && input_manager.is_running();
          if !run {
@@ -225,8 +175,12 @@ impl Game {
                _ => (),
             }
          }
-         input_manager.poll_all();
-         thread::yield_now();
+
+         while LIMIT_FPS && frame_start.elapsed() < TIME_PER_FRAME {
+            input_manager.poll_all();
+            b.lazy_update(&mut input_manager);
+            thread::yield_now();
+         }
       }
       let total_time = input_manager.reference_time().elapsed_now().as_secs_f64();
       println!("fps: avg {}", num_frames as f64 / total_time);
@@ -263,7 +217,7 @@ impl Game {
       use beatmap::settings::BeatmapSettings::*;
       let b = beatmap::Beatmap::load(filename);
 
-      let audio_filename = b.get(AudioFilename).unwrap().parse_as_str().to_string();
+      let audio_filename = b.get_setting(AudioFilename).unwrap().parse_as_str().to_string();
       let parent_dir = match path::Path::new(filename).parent() {
          Some(parent_dir) => match parent_dir.to_str() {
             Some(parent_dir) => mergestr(parent_dir, "/"),
