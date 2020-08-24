@@ -9,13 +9,13 @@ use std::{
    rc::Rc,
    sync::{Arc, Mutex},
    thread,
-   time::Duration,
+   time::{Duration, Instant},
 };
 
 pub enum AudioMessage {
    Ready,
    Stop,
-   Play(usize),
+   Play(usize, Duration),
    Done,
 }
 
@@ -141,7 +141,13 @@ impl AudioManager {
          match rx.try_recv() {
             Ok(AudioMessage::Stop) => break 'running,
             Ok(AudioMessage::Done) => wait_for_end = true,
-            Ok(AudioMessage::Play(id)) => self.play_source(id),
+            Ok(AudioMessage::Play(id, sleep)) => {
+               let now = Instant::now();
+               while now.elapsed() < sleep {
+                  thread::yield_now()
+               }
+               self.play_source(id)
+            }
             _ => (),
          }
          if wait_for_end && !self.isPlaying() {

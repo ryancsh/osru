@@ -200,7 +200,8 @@ impl Beatmap {
                   }
                   Pix2D::new(Pix::osru_pix(x as f32), Pix::osru_pix(y as f32))
                };
-               let time: isize = line[2].trim().parse().unwrap_or_default();
+               let time = Duration::from_millis(line[2].trim().parse::<u64>().unwrap_or_default())
+                  + BEATMAP_TIMING_OFFSET;
                let type_bitflags = line[3].trim().parse::<u32>().unwrap_or_default();
                let hitsound_bitflags = line[4].trim().parse::<u32>().unwrap_or_default();
                let hitsounds = OsruHitSounds::from_bitflags(Bitflags(hitsound_bitflags));
@@ -209,24 +210,24 @@ impl Beatmap {
 
                if type_bitflags & 0b1 == 0b1 {
                   //hitcircle
-                  let h = HitCircle {
+                  let hitcircle = hitcircle::HitCircle {
                      position,
-                     time: Duration::from_millis(time as u64),
+                     time,
                      new_combo,
                      combo_colours_to_skip,
                      hitsounds,
                      ..Default::default()
                   };
-                  beatmap.hitobjects.push(HitObject::HitCircle(h));
+                  beatmap.hitobjects.push(HitObject::HitCircle(hitcircle));
                } else if type_bitflags & 0b10 == 0b10 {
                   //slider
-                  use OsruCurveType::*;
+                  use slider::SliderCurveType::{self, *};
                   let curve = line[5].trim().parse::<String>().unwrap_or_default();
                   let curve = curve.trim();
                   let curve = parse_list(curve, "|");
                   let mut iter = curve.iter();
-                  let mut curve_type = Bezier;
-                  let mut curve_list = vec![];
+                  let mut curve_type = SliderCurveType::default();
+                  let mut curve_points = vec![position];
                   if let Some(c) = iter.next() {
                      curve_type = match *c {
                         "C" => CentripetalCatmullRom,
@@ -241,17 +242,18 @@ impl Beatmap {
                            let x = split[0].trim().parse().unwrap_or_default();
                            let y = split[1].trim().parse().unwrap_or_default();
                            let curve_point = Pix2D::new(Pix::osru_pix(x), Pix::osru_pix(y));
-                           curve_list.push(curve_point);
+                           curve_points.push(curve_point);
                         }
                      }
+                     curve_points.shrink_to_fit();
                   }
-                  let num_slides = line[6].trim().parse::<isize>().unwrap_or(1);
-                  let length_of_slider = line[7].trim().parse::<f64>().unwrap_or_default();
+                  let num_slides = line[6].trim().parse::<u32>().unwrap_or(1);
+                  let length_of_slider = Pix::OsruPix(line[7].trim().parse::<f32>().unwrap_or_default());
                   let mut edge_sounds = vec![];
                   if line.len() >= 9 {
                      let line8 = parse_list(line[8], "|");
                      for sound in line8 {
-                        edge_sounds.push(sound.trim().parse::<isize>().unwrap_or(0));
+                        edge_sounds.push(sound.trim().parse::<i32>().unwrap_or(0));
                      }
                   }
                   //let mut edge_sets = vec![];
@@ -263,15 +265,17 @@ impl Beatmap {
                      }
                   }
 
-                  let h = HitCircle {
-                     position,
-                     time: Duration::from_millis(time as u64),
+                  let slider = slider::Slider {
+                     curve_points,
+                     time,
                      new_combo,
                      combo_colours_to_skip,
-                     hitsounds,
+                     curve_type,
+                     num_slides,
+                     length_of_slider,
                      ..Default::default()
                   };
-                  beatmap.hitobjects.push(HitObject::HitCircle(h));
+                  beatmap.hitobjects.push(HitObject::Slider(slider));
 
                //println!("slider {:?}", line);
                } else if type_bitflags & 0b1000 == 0b1000 {
@@ -288,6 +292,10 @@ impl Beatmap {
       }
       //println!("settings {:?}", beatmap.settings);
       //println!("timing points {:?}", beatmap.timing_points);
+      beatmap.hitobjects.shrink_to_fit();
+      beatmap.event_backgrounds.shrink_to_fit();
+      beatmap.timing_points.shrink_to_fit();
+      beatmap.settings.shrink_to_fit();
       beatmap
    }
 

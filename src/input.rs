@@ -31,7 +31,7 @@ pub struct InputManager {
 
 impl InputManager {
    pub fn new(event_pump: EventPump) -> InputManager {
-      let mut pending_snapshots = VecDeque::with_capacity(15);
+      let mut pending_snapshots = VecDeque::new();
       pending_snapshots.push_back(InputSnapshot::default());
       pending_snapshots.push_back(InputSnapshot::default());
       let mut result =
@@ -286,6 +286,20 @@ impl<'a> InputUpdate<'a> {
    }
    pub fn M2_released(&self) -> bool {
       self.previous.M2() && !self.current.M2()
+   }
+
+   pub fn K1M1_pressed(&self) -> bool {
+      (self.current.K1() || self.current.M1()) && !(self.previous.K1() || self.previous.M1())
+   }
+   pub fn K1M1_released(&self) -> bool {
+      !(self.current.K1() || self.current.M1()) && (self.previous.K1() || self.previous.M1())
+   }
+
+   pub fn K2M2_pressed(&self) -> bool {
+      (self.current.K2() || self.current.M2()) && !(self.previous.K2() || self.previous.M2())
+   }
+   pub fn K2M2_released(&self) -> bool {
+      !(self.current.K2() || self.current.M2()) && (self.previous.K2() || self.previous.M2())
    }
 
    pub fn current_time(&self) -> &Duration {

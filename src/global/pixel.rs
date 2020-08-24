@@ -33,14 +33,14 @@ impl Pix {
       use Pix::*;
       match self {
          ScreenPix(value) => Pix::OsruPix(*value),
-         OsruPix(_) => panic![],
+         OsruPix(_) => panic!("Can't convert {:?} to osru pixels", self),
       }
    }
    pub fn to_screen_pix(&self) -> Pix {
       use Pix::*;
       match self {
          OsruPix(value) => Pix::ScreenPix(*value),
-         ScreenPix(_) => panic![],
+         ScreenPix(_) => panic!("Can't convert {:?} to screen pixels", self),
       }
    }
 }
@@ -107,25 +107,25 @@ impl ops::Div<f32> for Pix {
    }
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialOrd, PartialEq)]
 pub struct Pix2D {
    x: Pix,
    y: Pix,
 }
 impl Pix2D {
-   fn validate(x: &Pix, y: &Pix) {
+   fn _validate(x: &Pix, y: &Pix) {
       #[cold]
       if mem::discriminant(x) != mem::discriminant(y) {
          panic![];
       }
    }
    pub fn new(x: Pix, y: Pix) -> Pix2D {
-      Pix2D::validate(&x, &y);
+      //Pix2D::_validate(&x, &y);
       Pix2D { x, y }
    }
    pub fn set_pix(&mut self, x: Pix, y: Pix) {
-      Pix2D::validate(&x, &y);
-      Pix2D::validate(&x, &self.x);
+      //Pix2D::_validate(&x, &y);
+      //Pix2D::_validate(&x, &self.x);
       self.x = x;
       self.y = y;
    }
@@ -161,6 +161,18 @@ impl ops::Sub for Pix2D {
       Pix2D { x: self.x - rhs.x, y: self.y - rhs.y }
    }
 }
+impl ops::Mul<f32> for Pix2D {
+   type Output = Pix2D;
+   fn mul(self, rhs: f32) -> Self::Output {
+      Pix2D { x: self.x * rhs, y: self.x * rhs }
+   }
+}
+impl ops::Div<f32> for Pix2D {
+   type Output = Pix2D;
+   fn div(self, rhs: f32) -> Self::Output {
+      Pix2D { x: self.x / rhs, y: self.x / rhs }
+   }
+}
 
 #[derive(Debug, Clone)]
 pub struct PixRect {
@@ -170,16 +182,19 @@ pub struct PixRect {
    height: Pix,
 }
 impl PixRect {
-   fn validate(x: &Pix, y: &Pix, width: &Pix, height: &Pix) {
+   fn _validate(x: &Pix, y: &Pix, width: &Pix, height: &Pix) {
       if !((mem::discriminant(x) == mem::discriminant(y))
          && (mem::discriminant(width) == mem::discriminant(height))
          && (mem::discriminant(x) == mem::discriminant(width)))
       {
-         panic![];
+         panic!(
+            "Different types of pixels: x = {:?}, y = {:?}, width = {:?}, height = {:?}",
+            x, y, width, height
+         );
       }
    }
    pub fn new(x: Pix, y: Pix, width: Pix, height: Pix) -> PixRect {
-      PixRect::validate(&x, &y, &width, &height);
+      //PixRect::_validate(&x, &y, &width, &height);
       PixRect { x, y, width, height }
    }
 

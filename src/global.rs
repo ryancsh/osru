@@ -25,16 +25,12 @@ pub const TIMING_WINDOW_GOOD_MULTIPLIER: Duration = Duration::from_micros(8_000)
 pub const TIMING_WINDOW_MEH: Duration = Duration::from_micros(200_000);
 pub const TIMING_WINDOW_MEH_MULTIPLIER: Duration = Duration::from_micros(10_000);
 
+pub const BEATMAP_TIMING_OFFSET: Duration = Duration::from_secs(2);
+pub const HITCIRCLE_MAX_OPACITY: u128 = 128;
+
 pub const TIME_PER_FRAME: Duration = Duration::from_nanos(999_999_999 / 144);
 
 pub static mut USER_EVENT_TYPE: u32 = 0;
-pub static DEFAULT_ANIMATION_TIMING: AnimationTiming = AnimationTiming {
-   preempt: Duration::from_millis(500),
-   fade_in: Duration::from_millis(300),
-   timing_great: TIMING_WINDOW_GREAT,
-   timing_good: TIMING_WINDOW_GOOD,
-   timing_meh: TIMING_WINDOW_MEH,
-};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Colour<T> {
@@ -68,13 +64,7 @@ pub enum OsruGameMode {
    Mania,
    Taiko,
 }
-#[derive(Debug, Clone, IntoEnumIterator)]
-pub enum OsruCurveType {
-   Bezier,
-   CentripetalCatmullRom,
-   Linear,
-   PerfectCircle,
-}
+
 #[derive(Debug, Clone, IntoEnumIterator)]
 pub enum OsruHitSuccess {
    Great,
@@ -108,17 +98,6 @@ pub struct OsruOD(pub f32);
 pub struct OsruAR(pub f32);
 #[derive(Debug, Clone)]
 pub struct OsruCS(pub f32);
-
-#[derive(Debug, Clone)]
-pub struct AnimationTiming {
-   pub preempt: Duration,
-   pub fade_in: Duration,
-   pub timing_great: Duration,
-   pub timing_good: Duration,
-   pub timing_meh: Duration,
-}
-
-pub struct TimeBarrier {}
 
 #[derive(Debug, Clone)]
 pub enum OsruType {
@@ -164,16 +143,6 @@ impl OsruType {
                None
             }
          }
-         /*
-         Time(_) => {
-             let value = value.parse::<isize>();
-             if let Ok(value) = value{
-                 let mut value = value;
-                 if value < 0 {value = 0}
-                 Some(Time(value as usize))
-             }else {None}
-         },
-         */
          List(v) => panic![],
       }
    }
@@ -301,6 +270,7 @@ pub fn scaling_factor(assumed_size: &Pix2D, screen_viewport: &PixRect, letterbox
    }
 }
 
+/*
 pub fn circle_pos_wrt_window(
    circle_pos: &Pix2D, image_size: &Pix2D, viewport_size: &PixRect, scale_image: bool,
 ) -> PixRect {
@@ -332,6 +302,17 @@ pub fn circle_pos_wrt_window(
 
    PixRect::new(new_image_pos_x, new_image_pos_y, new_image_width, new_image_height)
 }
+*/
+
+pub fn calculate_texture_viewport(
+   screen_pos: &Pix2D, texture_size: &Pix2D, screen_viewport: &PixRect,
+   image_scaling: crate::beatmap::hitobject::HitObjectScale,
+) -> PixRect {
+   let image_size = *texture_size * image_scaling.0;
+   let new_pos_x = screen_pos.x() - image_size.x() / 2;
+   let new_pos_y = screen_pos.y() - image_size.y() / 2;
+   PixRect::new(new_pos_x, new_pos_y, image_size.x(), image_size.y())
+}
 
 pub fn osru_pos_to_screen_pos(osru_coord: &Pix2D, viewport_size: &PixRect) -> Pix2D {
    let scaling_factor = scaling_factor(&DEFAULT_WINDOW_SIZE, viewport_size, Letterboxing::Allow);
@@ -349,8 +330,8 @@ pub fn osru_pos_to_screen_pos(osru_coord: &Pix2D, viewport_size: &PixRect) -> Pi
    Pix2D::new(new_coord_x, new_coord_y)
 }
 
-pub fn is_mouse_pos_in_range(circle_pos: &Pix2D, mouse_pos: &Pix2D, radius: &Pix) -> bool {
-   let diff = *circle_pos - *mouse_pos;
+pub fn cursor_in_range(circle_pos: &Pix2D, cursor_pos: &Pix2D, radius: &Pix) -> bool {
+   let diff = *circle_pos - *cursor_pos;
    let x_sq = diff.x().get().powi(2);
    let y_sq = diff.y().get().powi(2);
    let r_sq = radius.get().powi(2);
