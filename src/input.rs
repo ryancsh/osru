@@ -293,11 +293,27 @@ impl<'a> InputUpdate<'a> {
       self.previous.M2() && !self.current.M2()
    }
 
+   pub fn K1_held(&self) -> bool {
+      self.current.K1() && self.previous.K1()
+   }
+   pub fn K2_held(&self) -> bool {
+      self.current.K2() && self.previous.K2()
+   }
+   pub fn M1_held(&self) -> bool {
+      self.current.M1() && self.previous.M1()
+   }
+   pub fn M2_held(&self) -> bool {
+      self.current.M2() && self.previous.M2()
+   }
+
    pub fn K1M1_pressed(&self) -> bool {
       (self.current.K1() || self.current.M1()) && !(self.previous.K1() || self.previous.M1())
    }
    pub fn K1M1_released(&self) -> bool {
       !(self.current.K1() || self.current.M1()) && (self.previous.K1() || self.previous.M1())
+   }
+   pub fn K1M1_held(&self) -> bool {
+      (self.current.K1() || self.current.M1()) && (self.previous.K1() || self.previous.M1())
    }
 
    pub fn K2M2_pressed(&self) -> bool {
@@ -305,6 +321,9 @@ impl<'a> InputUpdate<'a> {
    }
    pub fn K2M2_released(&self) -> bool {
       !(self.current.K2() || self.current.M2()) && (self.previous.K2() || self.previous.M2())
+   }
+   pub fn K2M2_held(&self) -> bool {
+      (self.current.K2() || self.current.M2()) && (self.previous.K2() || self.previous.M2())
    }
 
    pub fn current_time(&self) -> &Duration {

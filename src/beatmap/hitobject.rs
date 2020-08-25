@@ -1,11 +1,12 @@
+pub mod hitcircle;
+pub mod slider;
+
+use super::*;
 use crate::global::pixel::*;
 use crate::global::*;
 use crate::input::{self, InputManager, InputUpdate};
 
 use enum_iterator::IntoEnumIterator;
-
-pub mod hitcircle;
-pub mod slider;
 
 use hitcircle::*;
 use slider::*;
@@ -18,6 +19,17 @@ use sdl2::{
 
 use std::fmt;
 use std::time::{Duration, SystemTime};
+
+pub const COLOUR_GREAT: Colour<u8> = Colour { r: 0, g: 180, b: 252, a: 128 };
+pub const COLOUR_GOOD: Colour<u8> = Colour { r: 141, g: 221, b: 0, a: 128 };
+pub const COLOUR_MEH: Colour<u8> = Colour { r: 255, g: 159, b: 0, a: 128 };
+pub const COLOUR_MISS: Colour<u8> = Colour { r: 255, g: 39, b: 53, a: 128 };
+pub const COLOUR_ACTIVE: Colour<u8> = Colour { r: 230, g: 230, b: 250, a: 128 };
+
+pub const APPROACH_CIRCLE_MAX_SCALING: f32 = 6.0;
+
+pub const HITCIRCLE_DEFAULT_SCALING: f32 = 2.0;
+pub const HITCIRCLE_MAX_OPACITY: u128 = 128;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, IntoEnumIterator)]
 pub enum UpdateResult {
@@ -108,43 +120,70 @@ impl Default for HitState {
    }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct HitObjectScale(pub f32);
-
-pub const COLOUR_GREAT: Colour<u8> = Colour { r: 0, g: 180, b: 252, a: 128 };
-pub const COLOUR_GOOD: Colour<u8> = Colour { r: 141, g: 221, b: 0, a: 128 };
-pub const COLOUR_MEH: Colour<u8> = Colour { r: 255, g: 159, b: 0, a: 128 };
-pub const COLOUR_MISS: Colour<u8> = Colour { r: 255, g: 39, b: 53, a: 128 };
-
 #[derive(Debug, Clone)]
 pub enum HitObject {
    HitCircle(HitCircle),
    Slider(Slider),
 }
 impl HitObject {
-   pub fn update(&mut self, update: &InputUpdate) -> UpdateResult {
+   pub fn update(&mut self, update: &InputUpdate, timing: &AnimationTiming) -> UpdateResult {
       use HitObject::*;
       match self {
-         HitCircle(hit_circle) => hit_circle.update(update),
-         Slider(slider) => slider.update(update),
+         HitCircle(hit_circle) => hit_circle.update(update, timing),
+         Slider(slider) => slider.update(update, timing),
       }
    }
 
-   pub fn prepare(&mut self, viewport_size: &PixRect) {
+   pub fn prepare(&mut self, viewport_size: &PixRect, beatmap_settings: &BeatmapSettings) {
       use HitObject::*;
       match self {
-         HitCircle(hit_circle) => hit_circle.prepare(viewport_size),
-         Slider(slider) => slider.prepare(viewport_size),
+         HitCircle(hit_circle) => hit_circle.prepare(viewport_size, beatmap_settings),
+         Slider(slider) => slider.prepare(viewport_size, beatmap_settings),
       }
    }
 
    // fn reset()
 
-   pub fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> DrawResult {
+   pub fn draw_self(&self, canvas: &mut WindowCanvas, texture_manager: &mut TextureManager) -> DrawResult {
       use HitObject::*;
       match self {
-         HitCircle(hit_circle) => hit_circle.draw(canvas, texture),
-         Slider(slider) => slider.draw(canvas, texture),
+         HitCircle(hit_circle) => hit_circle.draw_self(canvas, texture_manager),
+         Slider(slider) => slider.draw_self(canvas, texture_manager),
+      }
+   }
+
+   pub fn draw_approach_circle(
+      &self, canvas: &mut WindowCanvas, texture_manager: &mut TextureManager, timings: &AnimationTiming,
+      current_time: Duration,
+   ) {
+      use HitObject::*;
+
+      let self_time = self.time();
+      if current_time < self_time {
+         let texture = texture_manager.get(TextureName::ApproachCircle);
+         let mut texture = texture.borrow_mut();
+
+         let mut opacity = (self_time - current_time).as_secs_f32() / timings.fadein_duration().as_secs_f32();
+         if opacity > 1.0 {
+            opacity = 1.0;
+         }
+         texture.set_alpha_mod(((1.0 - opacity) * 128.0).round() as u8);
+
+         let scaling = (self_time - current_time).as_secs_f32() / timings.preempt_duration().as_secs_f32()
+            * APPROACH_CIRCLE_MAX_SCALING
+            + 2.0;
+
+         let image_size = Pix2D::new(
+            Pix::screen_pix(texture.query().width as f32),
+            Pix::screen_pix(texture.query().height as f32),
+         );
+         let viewport = calculate_texture_viewport(
+            &self.screen_position(),
+            &image_size,
+            &PixRect::new_from_sdl2_rect(canvas.viewport()),
+            ScalingFactor(scaling),
+         );
+         canvas.copy(&texture, None, viewport.to_sdl2_rect()).unwrap();
       }
    }
 
@@ -163,6 +202,14 @@ impl HitObject {
          Slider(slider) => slider.time(),
       }
    }
+
+   pub fn screen_position(&self) -> Pix2D {
+      use HitObject::*;
+      match self {
+         HitCircle(hit_circle) => hit_circle.screen_position(),
+         Slider(slider) => slider.screen_position(),
+      }
+   }
 }
 
 /*
@@ -178,83 +225,3 @@ pub struct Spinner {
    hit_sample: Vec<i32>,
 }
 */
-
-#[derive(Debug, Copy, Clone)]
-pub struct AnimationTiming {
-   preempt: Duration,
-   fadein: Duration,
-   timing_great: Duration,
-   timing_good: Duration,
-   timing_meh: Duration,
-}
-impl AnimationTiming {
-   pub fn new(
-      preempt: Duration, fadein: Duration, timing_great: Duration, timing_good: Duration,
-      timing_meh: Duration,
-   ) -> AnimationTiming {
-      AnimationTiming { preempt, fadein, timing_great, timing_good, timing_meh }
-   }
-   pub fn preempt_duration(&self) -> Duration {
-      self.preempt
-   }
-   pub fn fadein_duration(&self) -> Duration {
-      self.fadein
-   }
-   pub fn timing_great_duration(&self) -> Duration {
-      self.timing_great
-   }
-   pub fn timing_good_duration(&self) -> Duration {
-      self.timing_good
-   }
-   pub fn timing_meh_duration(&self) -> Duration {
-      self.timing_meh
-   }
-   pub fn fadein_start(&self, hit_time: Duration) -> Duration {
-      hit_time - self.preempt
-   }
-   pub fn fadein_end(&self, hit_time: Duration) -> Duration {
-      hit_time + self.fadein - self.preempt
-   }
-   pub fn timing_meh_start(&self, hit_time: Duration) -> Duration {
-      hit_time - self.timing_meh
-   }
-   pub fn timing_good_start(&self, hit_time: Duration) -> Duration {
-      hit_time - self.timing_good
-   }
-   pub fn timing_great_start(&self, hit_time: Duration) -> Duration {
-      hit_time - self.timing_great
-   }
-   pub fn timing_great_end(&self, hit_time: Duration) -> Duration {
-      hit_time + self.timing_great
-   }
-   pub fn timing_good_end(&self, hit_time: Duration) -> Duration {
-      hit_time + self.timing_good
-   }
-   pub fn timing_meh_end(&self, hit_time: Duration) -> Duration {
-      hit_time + self.timing_meh
-   }
-
-   pub fn is_timing_great(&self, hit_time: Duration, current_time: Duration) -> bool {
-      current_time > self.timing_great_start(hit_time) && current_time < self.timing_great_end(hit_time)
-   }
-   pub fn is_timing_good(&self, hit_time: Duration, current_time: Duration) -> bool {
-      current_time > self.timing_good_start(hit_time) && current_time < self.timing_good_end(hit_time)
-   }
-   pub fn is_timing_meh(&self, hit_time: Duration, current_time: Duration) -> bool {
-      current_time > self.timing_meh_start(hit_time) && current_time < self.timing_meh_end(hit_time)
-   }
-   pub fn is_timing_miss(&self, hit_time: Duration, current_time: Duration) -> bool {
-      current_time > self.timing_meh_end(hit_time)
-   }
-}
-impl Default for AnimationTiming {
-   fn default() -> AnimationTiming {
-      AnimationTiming {
-         preempt: Duration::from_millis(500),
-         fadein: Duration::from_millis(250),
-         timing_great: TIMING_WINDOW_GREAT,
-         timing_good: TIMING_WINDOW_GOOD,
-         timing_meh: TIMING_WINDOW_MEH,
-      }
-   }
-}

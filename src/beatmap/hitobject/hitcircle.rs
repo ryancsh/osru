@@ -1,3 +1,4 @@
+use super::super::timing::*;
 use super::*;
 
 #[derive(Debug, Clone)]
@@ -16,64 +17,64 @@ pub struct HitCircle {
 
    pub hit_state: HitState,
    pub colour: Colour<u8>,
-   pub scale: HitObjectScale,
-   pub circle_pos_to_window: Pix2D,
+   pub scale: ScalingFactor,
+   pub screen_position: Pix2D,
    pub time_hit: Duration,
+   pub current_time: Duration,
 }
 impl HitCircle {
-   pub fn update(&mut self, update: &InputUpdate) -> UpdateResult {
+   pub fn update(&mut self, update: &InputUpdate, timings: &AnimationTiming) -> UpdateResult {
       use HitState::*;
       use HitSuccess::*;
       use UpdateResult::*;
 
-      let current_time = *update.current_time();
-      let timings = AnimationTiming::default();
+      self.current_time = *update.current_time();
 
       if let DoneDrawing(_) = self.hit_state {
-      } else if current_time < timings.fadein_start(self.time) {
+      } else if self.current_time < timings.fadein_start(self.time) {
          self.hit_state = NotDrawing;
-      } else if current_time < timings.timing_meh_start(self.time) {
+      } else if self.current_time < timings.timing_meh_start(self.time) {
          self.colour.a = HITCIRCLE_MAX_OPACITY as u8;
          self.hit_state = Ready;
-         if current_time < timings.fadein_end(self.time) {
-            self.fade_in(current_time, &timings);
+         if self.current_time < timings.fadein_end(self.time) {
+            self.fade_in(self.current_time, &timings);
          }
       } else if let Hit(_) = self.hit_state {
-         self.fade_out(current_time, &timings);
+         self.fade_out(&timings);
       } else {
          self.hit_state = Ready;
          self.colour.a = HITCIRCLE_MAX_OPACITY as u8;
-         if timings.is_timing_meh(self.time, current_time)
+         if timings.is_timing_meh(self.time, self.current_time)
             && (update.K1M1_pressed() || update.K2M2_pressed())
-            && cursor_in_range(&self.circle_pos_to_window, update.current_mouse_pos(), &Pix::ScreenPix(150.0))
+            && cursor_in_range(&self.screen_position, update.current_mouse_pos(), &Pix::ScreenPix(150.0))
          {
             self.hit_state = Hit(Meh);
             self.colour = COLOUR_MEH;
-            self.scale = HitObjectScale(0.5);
-            self.time_hit = current_time;
+            self.scale = ScalingFactor(0.5);
+            self.time_hit = self.current_time;
 
-            if timings.is_timing_great(self.time, current_time) {
+            if timings.is_timing_great(self.time, self.current_time) {
                self.hit_state = Hit(Great);
                self.colour = COLOUR_GREAT;
-            } else if timings.is_timing_good(self.time, current_time) {
+            } else if timings.is_timing_good(self.time, self.current_time) {
                self.hit_state = Hit(Good);
                self.colour = COLOUR_GOOD;
             }
-            self.fade_out(current_time, &timings);
+            self.fade_out(&timings);
             return InputConsumed;
-         } else if timings.is_timing_miss(self.time, current_time) {
+         } else if timings.is_timing_miss(self.time, self.current_time) {
             self.hit_state = Hit(Miss);
             self.colour = COLOUR_MISS;
-            self.scale = HitObjectScale(0.5);
+            self.scale = ScalingFactor(0.5);
             self.time_hit = timings.timing_meh_end(self.time);
-            self.fade_out(current_time, &timings);
+            self.fade_out(&timings);
          }
       }
       return InputNotConsumed;
    }
 
-   pub fn fade_out(&mut self, current_time: Duration, timings: &AnimationTiming) {
-      let num = (current_time - self.time_hit).as_micros();
+   pub fn fade_out(&mut self, timings: &AnimationTiming) {
+      let num = (self.current_time - self.time_hit).as_micros();
       let den = (timings.timing_meh_duration() * 2).as_micros();
       if num > den {
          self.hit_state = self.hit_state.to_done_drawing();
@@ -88,12 +89,14 @@ impl HitCircle {
       self.colour.a = ((num * HITCIRCLE_MAX_OPACITY) / den) as u8;
    }
 
-   pub fn prepare(&mut self, viewport_size: &PixRect) {
-      self.circle_pos_to_window = osru_pos_to_screen_pos(&self.position, viewport_size);
+   pub fn prepare(&mut self, viewport_size: &PixRect, beatmap_settings: &BeatmapSettings) {
+      self.screen_position = osru_pos_to_screen_pos(&self.position, viewport_size);
    }
 
-   pub fn draw(&self, canvas: &mut WindowCanvas, texture: &mut Texture) -> DrawResult {
+   pub fn draw_self(&self, canvas: &mut WindowCanvas, texture_manager: &mut TextureManager) -> DrawResult {
       use DrawResult::*;
+      let texture = texture_manager.get(TextureName::HitCircle);
+      let mut texture = texture.borrow_mut();
       if self.hit_state.is_drawing() {
          texture.set_alpha_mod(self.colour.a);
          texture.set_color_mod(self.colour.r, self.colour.g, self.colour.b);
@@ -103,12 +106,12 @@ impl HitCircle {
             Pix::screen_pix(texture.query().height as f32),
          );
          let viewport = calculate_texture_viewport(
-            &self.circle_pos_to_window,
+            &self.screen_position,
             &image_size,
             &PixRect::new_from_sdl2_rect(canvas.viewport()),
             self.scale,
          );
-         canvas.copy(texture, None, viewport.to_sdl2_rect()).unwrap();
+         canvas.copy(&texture, None, viewport.to_sdl2_rect()).unwrap();
          Drawed
       } else {
          NotDrawed
@@ -121,6 +124,10 @@ impl HitCircle {
 
    pub fn time(&self) -> Duration {
       self.time
+   }
+
+   pub fn screen_position(&self) -> Pix2D {
+      self.screen_position
    }
 
    // fn reset()
@@ -139,10 +146,11 @@ impl Default for HitCircle {
          hitsample_volume: Volume::default(),
          hitsample_filename: nstr(""),
          hit_state: HitState::default(),
-         colour: Colour { r: u8::MAX, g: u8::MAX, b: u8::MAX, a: u8::MAX / 2 },
-         scale: HitObjectScale(2.0),
-         circle_pos_to_window: Pix2D::default_screen(),
+         colour: Colour { r: u8::MAX, g: u8::MAX, b: u8::MAX, a: 128 },
+         scale: ScalingFactor(2.0),
+         screen_position: Pix2D::default_screen(),
          time_hit: Duration::default(),
+         current_time: Duration::default(),
       }
    }
 }

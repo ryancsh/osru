@@ -10,7 +10,7 @@ edition = "2018"
 rodio = "*"
 rand = "*"
 enum-iterator = "*"
-enum_dispatch = "*"
+assert_approx_eq = "*"
 
 [dependencies.sdl2]
 version = "0.34.2"

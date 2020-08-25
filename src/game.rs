@@ -18,7 +18,9 @@ use std::sync::mpsc;
 use std::{
    cmp,
    collections::HashSet,
-   hash, path, slice, thread,
+   hash, path,
+   rc::Rc,
+   slice, thread,
    time::{self, Duration, Instant},
 };
 
@@ -27,9 +29,11 @@ impl Game {
    pub fn start() {
       let audio = true;
 
-      const _MAGIC: &str = "assets/beatmap/magic/Shihori - Magic Girl !! (Frostmourne) [Hard].osu";
+      const _MAGIC: &str = "assets/beatmap/magic/Shihori - Magic Girl !! (Frostmourne) [Lunatic].osu";
       const _KOI: &str = "assets/beatmap/koi/KOTOKO - Koi Kou Enishi (Crystal) [Hard].osu";
-      let (audio_filename, background_filename, mut b) = Game::start_beatmap(OsruGameMode::Standard, _KOI);
+      const _FANTASTIC: &str =
+         "assets/beatmap/fantastic/Tamura Yukari - Fantastic future (TV Size) (Flask) [Hard].osu";
+      let (audio_filename, background_filename, mut b) = Game::start_beatmap(OsruGameMode::Standard, _MAGIC);
       let background_filename = {
          if let Some(filename) = background_filename {
             filename
@@ -90,11 +94,13 @@ impl Game {
       canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
       canvas.present();
 
-      let texture_creator = canvas.texture_creator();
+      let texture_manager = canvas.texture_creator();
+      let mut texture_manager = TextureManager::new(&texture_manager);
+      let mut texture_manager = &mut texture_manager;
 
-      let mut texture = texture_creator.load_texture(path::Path::new("assets/hitcircle.png")).unwrap();
-      let mut background_texture =
-         texture_creator.load_texture(path::Path::new(&background_filename)).unwrap();
+      texture_manager.load(TextureName::HitCircle, "assets/skin/hitcircle.png");
+      texture_manager.load(TextureName::Background, &background_filename);
+      texture_manager.load(TextureName::ApproachCircle, "assets/skin/approachcircle.png");
 
       //input
       let event_subsys = sdl_context.event().unwrap();
@@ -103,16 +109,14 @@ impl Game {
 
       // other stuff
 
-      let background_viewport = Pix2D::new(
-         Pix::screen_pix(background_texture.query().width as f32),
-         Pix::screen_pix(background_texture.query().height as f32),
-      );
+      let background_viewport = texture_manager.size(TextureName::Background);
 
       let viewport_size = PixRect::new_from_sdl2_rect(canvas.viewport());
+      let background_texture = texture_manager.get(TextureName::Background);
       {
          canvas.set_draw_color(pixels::Color::RGBA(0, 0, 0, 255));
          canvas.clear();
-         display_background_image(&mut canvas, &mut background_texture, Letterboxing::Deny);
+         display_background_image(&mut canvas, &mut background_texture.borrow_mut(), Letterboxing::Deny);
       }
       b.prepare(&viewport_size);
 
@@ -138,9 +142,8 @@ impl Game {
          let frame_start = Instant::now();
 
          b.full_update(&mut input_manager);
-
-         display_background_image(&mut canvas, &mut background_texture, Letterboxing::Deny);
-         b.draw(&mut canvas, &mut texture);
+         display_background_image(&mut canvas, &mut background_texture.borrow_mut(), Letterboxing::Deny);
+         b.draw(&mut canvas, &mut texture_manager, &mut input_manager);
          run = run && !b.is_done();
 
          input_manager.poll_all();
@@ -158,8 +161,6 @@ impl Game {
          input_manager.poll_all();
          canvas.present();
          input_manager.poll_all();
-         thread::yield_now();
-         input_manager.poll_all();
 
          num_frames += 1;
 
@@ -175,7 +176,7 @@ impl Game {
                _ => (),
             }
          }
-
+         //let target_frame_time = frame_start.elapsed() * 8;
          while LIMIT_FPS && frame_start.elapsed() < TIME_PER_FRAME {
             input_manager.poll_all();
             b.lazy_update(&mut input_manager);
@@ -214,10 +215,10 @@ impl Game {
    }
 
    pub fn start_beatmap(mode: OsruGameMode, filename: &str) -> (String, Option<String>, Beatmap) {
-      use beatmap::settings::BeatmapSettings::*;
+      use beatmap::settings::{BeatmapSettingName::*, BeatmapSettings};
       let b = beatmap::Beatmap::load(filename);
 
-      let audio_filename = b.get_setting(AudioFilename).unwrap().parse_as_str().to_string();
+      let audio_filename = b.settings.get(&AudioFilename).unwrap().parse_as_str().to_string();
       let parent_dir = match path::Path::new(filename).parent() {
          Some(parent_dir) => match parent_dir.to_str() {
             Some(parent_dir) => mergestr(parent_dir, "/"),

@@ -8,63 +8,6 @@ impl OsruGameModsActive {
     OsruGameModsActive { mods: HashSet::new() }
   }
 
-  pub fn od_multiplier(&self) -> f64 {
-    let mut od_mul = 1.0;
-    for game_mod in self.mods.iter() {
-      od_mul *= game_mod.od_multiplier;
-    }
-    if od_mul > 10.0 {
-      10.0
-    } else {
-      od_mul
-    }
-  }
-
-  // TODO: perceived_od_mul()
-  pub fn ar_multiplier(&self) -> f64 {
-    let mut ar_mul = 1.0;
-    for game_mod in self.mods.iter() {
-      ar_mul *= game_mod.ar_multiplier;
-    }
-    if ar_mul > 10.0 {
-      10.0
-    } else {
-      ar_mul
-    }
-  }
-
-  pub fn hit_timing_window(&self, hit_success: OsruHitSuccess, beatmap_od: OsruOD) -> Duration {
-    let (base_timing, multiplier) = match hit_success {
-      OsruHitSuccess::Great => (TIMING_WINDOW_GREAT, TIMING_WINDOW_GREAT_MULTIPLIER),
-      OsruHitSuccess::Good => (TIMING_WINDOW_GOOD, TIMING_WINDOW_GOOD_MULTIPLIER),
-      OsruHitSuccess::Meh => (TIMING_WINDOW_MEH, TIMING_WINDOW_MEH_MULTIPLIER),
-      OsruHitSuccess::Miss => panic![],
-    };
-    let od_multiplier = self.od_multiplier();
-    base_timing
-      - Duration::from_micros((self.od_multiplier() * multiplier.as_micros() as f64 * beatmap_od.0) as u64)
-  }
-
-  pub fn preempt_time(&self, beatmap_ar: OsruAR) -> Duration {
-    if beatmap_ar.0 == 5.0 {
-      Duration::from_millis(1200)
-    } else if beatmap_ar.0 < 5.0 {
-      Duration::from_millis((1200.0 + 600.0 * (5.0 - beatmap_ar.0 * self.ar_multiplier()) / 5.0) as u64)
-    } else {
-      Duration::from_millis((1200.0 - 750.0 * (beatmap_ar.0 * self.ar_multiplier() - 5.0) / 5.0) as u64)
-    }
-  }
-
-  pub fn fade_in_time(&self, beatmap_ar: OsruAR) -> Duration {
-    if beatmap_ar.0 == 5.0 {
-      Duration::from_millis(800)
-    } else if beatmap_ar.0 < 5.0 {
-      Duration::from_millis((800.0 + 400.0 * (5.0 - beatmap_ar.0 * self.ar_multiplier()) / 5.0) as u64)
-    } else {
-      Duration::from_millis((800.0 - 500.0 * (beatmap_ar.0 * self.ar_multiplier() - 5.0) / 5.0) as u64)
-    }
-  }
-
   pub fn enable_game_mod(&mut self, new_mod: OsruGameModName) {
     let mut to_remove = vec![];
     let new_mod = OsruGameMod::new(new_mod);

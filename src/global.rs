@@ -18,18 +18,10 @@ pub const AUDIO_NORMALIZE: bool = true;
 
 pub const INTERPOLATE_MOUSE_POSITION: bool = false;
 
-pub const TIMING_WINDOW_GREAT: Duration = Duration::from_micros(80_000);
-pub const TIMING_WINDOW_GREAT_MULTIPLIER: Duration = Duration::from_micros(6_000);
-pub const TIMING_WINDOW_GOOD: Duration = Duration::from_micros(140_000);
-pub const TIMING_WINDOW_GOOD_MULTIPLIER: Duration = Duration::from_micros(8_000);
-pub const TIMING_WINDOW_MEH: Duration = Duration::from_micros(200_000);
-pub const TIMING_WINDOW_MEH_MULTIPLIER: Duration = Duration::from_micros(10_000);
-
 pub const BEATMAP_TIMING_OFFSET: Duration = Duration::from_secs(2);
-pub const HITCIRCLE_MAX_OPACITY: u128 = 128;
 
 pub const LIMIT_FPS: bool = true;
-pub const TIME_PER_FRAME: Duration = Duration::from_nanos(999_999_999 / 144);
+pub const TIME_PER_FRAME: Duration = Duration::from_nanos(999_999_999 / (144 * 3));
 
 pub static mut USER_EVENT_TYPE: u32 = 0;
 
@@ -57,6 +49,9 @@ impl Default for Volume {
       Volume(0.5)
    }
 }
+
+#[derive(Debug, Copy, Clone)]
+pub struct ScalingFactor(pub f32);
 
 #[derive(Debug, Clone, IntoEnumIterator)]
 pub enum OsruGameMode {
@@ -94,17 +89,10 @@ impl OsruHitSounds {
 }
 
 #[derive(Debug, Clone)]
-pub struct OsruOD(pub f32);
-#[derive(Debug, Clone)]
-pub struct OsruAR(pub f32);
-#[derive(Debug, Clone)]
-pub struct OsruCS(pub f32);
-
-#[derive(Debug, Clone)]
 pub enum OsruType {
    Integer(i32),
    Text(String),
-   Decimal(f32),
+   Decimal(f64),
    BitFlag(u32),
    List(Vec<OsruType>),
 }
@@ -121,7 +109,7 @@ impl OsruType {
             }
          }
          Decimal(_) => {
-            let value = value.parse::<f32>();
+            let value = value.parse::<f64>();
             if let Ok(value) = value {
                Some(Decimal(value))
             } else {
@@ -196,7 +184,7 @@ impl OsruType {
       }
    }
 
-   pub fn parse_as_dec(&self) -> f32 {
+   pub fn parse_as_dec(&self) -> f64 {
       if let OsruType::Decimal(value) = self {
          *value
       } else {
@@ -271,43 +259,8 @@ pub fn scaling_factor(assumed_size: &Pix2D, screen_viewport: &PixRect, letterbox
    }
 }
 
-/*
-pub fn circle_pos_wrt_window(
-   circle_pos: &Pix2D, image_size: &Pix2D, viewport_size: &PixRect, scale_image: bool,
-) -> PixRect {
-   let scaling_factor = scaling_factor(&DEFAULT_WINDOW_SIZE, viewport_size, Letterboxing::Allow);
-
-   let new_viewport_width = DEFAULT_WINDOW_SIZE.x() * scaling_factor;
-   let new_viewport_height = DEFAULT_WINDOW_SIZE.y() * scaling_factor;
-
-   let new_viewport_offset_x = (viewport_size.width() - new_viewport_width) / 2;
-   let new_viewport_offset_y = (viewport_size.height() - new_viewport_height) / 2;
-
-   let image_scaling = {
-      if scale_image {
-         scaling_factor
-      } else {
-         1.0
-      }
-   };
-
-   let new_image_width = image_size.x() * image_scaling;
-   let new_image_height = image_size.y() * image_scaling;
-
-   let circle_pos = circle_pos.to_screen_pix();
-   let mut new_image_pos_x = circle_pos.x() * scaling_factor;
-   new_image_pos_x = new_image_pos_x + new_viewport_offset_x - new_image_width / 2;
-
-   let mut new_image_pos_y = circle_pos.y() * scaling_factor;
-   new_image_pos_y = new_image_pos_y + new_viewport_offset_y - new_image_height / 2;
-
-   PixRect::new(new_image_pos_x, new_image_pos_y, new_image_width, new_image_height)
-}
-*/
-
 pub fn calculate_texture_viewport(
-   screen_pos: &Pix2D, texture_size: &Pix2D, screen_viewport: &PixRect,
-   image_scaling: crate::beatmap::hitobject::HitObjectScale,
+   screen_pos: &Pix2D, texture_size: &Pix2D, screen_viewport: &PixRect, image_scaling: ScalingFactor,
 ) -> PixRect {
    let image_size = *texture_size * image_scaling.0;
    let new_pos_x = screen_pos.x() - image_size.x() / 2;
@@ -343,8 +296,6 @@ pub fn cursor_in_range(circle_pos: &Pix2D, cursor_pos: &Pix2D, radius: &Pix) -> 
    }
 }
 
-pub fn clear_display() {}
-
 pub fn display_background_image(
    canvas: &mut sdl2::render::WindowCanvas, texture: &mut sdl2::render::Texture, letterboxing: Letterboxing,
 ) {
@@ -369,4 +320,55 @@ pub fn display_background_image(
    canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
    canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, u8::MAX / 4 * 3));
    canvas.fill_rect(canvas.viewport()).unwrap();
+}
+
+/////////////////////////////
+
+//use enum_iterator::IntoEnumIterator;
+use sdl2::image::LoadTexture;
+use sdl2::render::{Texture, TextureCreator};
+use sdl2::video::WindowContext;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::Path;
+use std::rc::Rc;
+
+#[derive(Debug, Copy, Clone, IntoEnumIterator, Eq, PartialEq, Hash)]
+pub enum TextureName {
+   Background,
+   ApproachCircle,
+   HitCircle,
+}
+
+pub struct TextureManager<'a> {
+   texture_creator: &'a TextureCreator<WindowContext>,
+   textures: HashMap<TextureName, Rc<RefCell<Texture<'a>>>>,
+}
+
+impl<'s> TextureManager<'s> {
+   pub fn new<'a>(texture_creator: &'a TextureCreator<WindowContext>) -> TextureManager<'a> {
+      TextureManager { texture_creator, textures: HashMap::new() }
+   }
+
+   pub fn load(&mut self, name: TextureName, filename: &str) {
+      if let Ok(texture) = self.texture_creator.load_texture(Path::new(filename)) {
+         self.textures.insert(name, Rc::new(RefCell::new(texture)));
+      } else {
+         panic![];
+      }
+   }
+
+   pub fn unload_all(&mut self) {
+      self.textures.clear();
+   }
+
+   pub fn get(&self, name: TextureName) -> Rc<RefCell<Texture<'s>>> {
+      Rc::clone(self.textures.get(&name).unwrap())
+   }
+
+   pub fn size(&self, name: TextureName) -> Pix2D {
+      let texture = self.get(name);
+      let texture_size = texture.borrow().query();
+      Pix2D::new(Pix::ScreenPix(texture_size.width as f32), Pix::ScreenPix(texture_size.height as f32))
+   }
 }

@@ -1,6 +1,5 @@
 /target
-/assets/audio
-/assets/beatmap
+/assets/*
 *.dll
 *.mkv
 *.mp3

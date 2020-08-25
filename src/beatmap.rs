@@ -3,12 +3,14 @@ use crate::*;
 pub mod event;
 pub mod hitobject;
 pub mod settings;
+pub mod timing;
 
 use event::*;
 use global::pixel::*;
 use hitobject::*;
 use input::*;
 use settings::*;
+use timing::*;
 
 use std::time::{Duration, SystemTime};
 use std::{any, clone, cmp, collections::HashMap, fmt, fs, slice};
@@ -16,7 +18,7 @@ use std::{any, clone, cmp, collections::HashMap, fmt, fs, slice};
 use sdl2::render::{Texture, WindowCanvas};
 
 pub struct Beatmap {
-   pub settings: HashMap<BeatmapSettings, OsruType>,
+   pub settings: BeatmapSettings,
 
    pub timing_points: Vec<TimingPoint>,
    pub hitobjects: Vec<HitObject>,
@@ -31,65 +33,12 @@ pub struct Beatmap {
    update_start_index: usize,
    draw_start_index: usize,
    draw_end_index: usize,
+   animation_timings: AnimationTiming,
 }
 impl Beatmap {
    fn new() -> Beatmap {
-      let mut s = HashMap::new();
-      {
-         use BeatmapSettings::*;
-         use OsruType::*;
-
-         //General
-         s.insert(AudioFilename, Text(nstr("")));
-         s.insert(AudioLeadIn, Integer(0));
-         s.insert(AudioHash, Text(nstr("")));
-         s.insert(PreviewTime, Integer(-1));
-         s.insert(Countdown, Integer(1));
-         s.insert(SampleSet, Text(nstr("Normal")));
-         s.insert(StackLeniency, Decimal(0.7));
-         s.insert(Mode, Integer(0));
-         s.insert(LetterboxInBreaks, Integer(0));
-         s.insert(StoryFireInFront, Integer(1));
-         s.insert(UseSkinSprites, Integer(0));
-         s.insert(AlwaysShowPlayfield, Integer(0));
-         s.insert(OverlayPosition, Text(nstr("NoChange")));
-         s.insert(SkinPreference, Text(nstr("")));
-         s.insert(EpilepsyWarning, Integer(0));
-         s.insert(CountdownOffset, Integer(0));
-         s.insert(SpecialStyle, Integer(0));
-         s.insert(WidescreenStoryboard, Integer(0));
-         s.insert(SamplesMatchPlaybackRate, Integer(0));
-
-         //Editor
-         s.insert(Bookmarks, List(vec![Integer(0)]));
-         s.insert(DistanceSpacing, Decimal(0.0));
-         s.insert(BeatDivisor, Decimal(0.0));
-         s.insert(GridSize, Integer(0));
-         s.insert(TimelineZoom, Decimal(0.0));
-
-         //Metadata
-         s.insert(Title, Text(nstr("")));
-         s.insert(TitleUnicode, Text(nstr("")));
-         s.insert(Artist, Text(nstr("")));
-         s.insert(ArtistUnicode, Text(nstr("")));
-         s.insert(Creator, Text(nstr("")));
-         s.insert(Version, Text(nstr("")));
-         s.insert(Source, Text(nstr("")));
-         s.insert(Tags, List(vec![Text(nstr(""))]));
-         s.insert(BeatmapID, Integer(-1));
-         s.insert(BeatmapSetID, Integer(-1));
-
-         //Difficulty
-         s.insert(HPDrainRate, Decimal(-1.0));
-         s.insert(CircleSize, Decimal(-1.0));
-         s.insert(OverallDifficulty, Decimal(-1.0));
-         s.insert(ApproachRate, Decimal(-1.0));
-         s.insert(SliderMultiplier, Decimal(-1.0));
-         s.insert(SliderTickRate, Decimal(-1.0));
-      }
-
       Beatmap {
-         settings: s,
+         settings: BeatmapSettings::new(),
 
          timing_points: vec![],
          hitobjects: vec![],
@@ -103,15 +52,15 @@ impl Beatmap {
          update_start_index: 0,
          draw_start_index: 0,
          draw_end_index: 0,
+         animation_timings: AnimationTiming::default(),
       }
    }
 
    pub fn load(filename: &str) -> Beatmap {
       let mut beatmap = Beatmap::new();
       let file = fs::read_to_string(filename).unwrap();
-      let mut last_hitobj_pos_x = -1;
-      let mut last_hitobj_pos_y = -1;
-      let mut hitobj_stack = 0;
+      let mut last_hitobj_pos_x = -50;
+      let mut last_hitobj_pos_y = -50;
 
       use BeatmapSection::*;
       let mut section = General;
@@ -132,19 +81,15 @@ impl Beatmap {
             }
          } else if section == General || section == Editor || section == Metadata || section == Difficulty {
             if let Some((k, value)) = parse_key_value(line, ":") {
-               let mut key = BeatmapSettings::Unknown;
-               for val in BeatmapSettings::into_enum_iter() {
-                  if val.to_string() == k {
-                     key = val;
-                  }
-               }
+               let mut key = BeatmapSettingName::from_str(k);
+
                if let Some(old_value) = beatmap.settings.get(&key) {
-                  if section == Metadata && key == BeatmapSettings::Tags {
+                  if section == Metadata && key == BeatmapSettingName::Tags {
                      if let Some(result) = OsruType::parse_type(value, old_value, Some(" ")) {
-                        beatmap.settings.insert(key, result);
+                        beatmap.settings.set(&key, result);
                      }
                   } else if let Some(result) = OsruType::parse_type(value, old_value, None) {
-                     beatmap.settings.insert(key, result);
+                     beatmap.settings.set(&key, result);
                   }
                }
             } else {
@@ -194,17 +139,14 @@ impl Beatmap {
             let line = parse_list(line, ",");
             if line.len() >= 4 {
                let position = {
-                  let mut x = line[0].trim().parse().unwrap_or_default();
-                  let mut y = line[1].trim().parse().unwrap_or_default();
-                  if x == last_hitobj_pos_x && y == last_hitobj_pos_y {
-                     hitobj_stack += 1;
-                     x += 5 * hitobj_stack;
-                     y += 5 * hitobj_stack;
-                  } else {
-                     last_hitobj_pos_x = x;
-                     last_hitobj_pos_y = y;
-                     hitobj_stack = 0;
+                  let mut x: i32 = line[0].trim().parse().unwrap_or_default();
+                  let mut y: i32 = line[1].trim().parse().unwrap_or_default();
+                  if ((x - last_hitobj_pos_x).pow(2) + (y - last_hitobj_pos_y).pow(2)) < 25 {
+                     x += 5;
+                     y += 5;
                   }
+                  last_hitobj_pos_x = x;
+                  last_hitobj_pos_y = y;
                   Pix2D::new(Pix::osru_pix(x as f32), Pix::osru_pix(y as f32))
                };
                let time = Duration::from_millis(line[2].trim().parse::<u64>().unwrap_or_default())
@@ -255,7 +197,8 @@ impl Beatmap {
                      curve_points.shrink_to_fit();
                   }
                   let num_slides = line[6].trim().parse::<u32>().unwrap_or(1);
-                  let length_of_slider = Pix::OsruPix(line[7].trim().parse::<f32>().unwrap_or_default());
+                  let length_of_slider =
+                     Pix::OsruPix(line[7].trim().parse::<f32>().unwrap_or_default() / 10.0);
                   let mut edge_sounds = vec![];
                   if line.len() >= 9 {
                      let line8 = parse_list(line[8], "|");
@@ -306,24 +249,16 @@ impl Beatmap {
       beatmap
    }
 
-   pub fn get_setting(&self, setting_name: BeatmapSettings) -> Option<&OsruType> {
-      if let Some(setting) = self.settings.get(&setting_name) {
-         Some(&setting)
-      } else {
-         None
-      }
-   }
-
    pub fn prepare(&mut self, viewport_size: &PixRect) {
+      self.animation_timings =
+         AnimationTiming::new_from(self.settings.overall_difficulty(), self.settings.approach_rate());
       for hitobj in self.hitobjects.iter_mut() {
-         hitobj.prepare(viewport_size);
+         hitobj.prepare(viewport_size, &self.settings);
       }
    }
 
    pub fn lazy_update(&mut self, input_manager: &mut InputManager) {
       use hitobject::UpdateResult::*;
-
-      let mut i = self.update_start_index;
 
       input_manager.poll_all();
 
@@ -332,7 +267,7 @@ impl Beatmap {
          let hitobj = self.hitobjects.get_mut(self.update_start_index).unwrap();
          if hitobj.hit_state().is_ready() || hitobj.hit_state().not_yet_drawing() {
             if let Some(update) = input_manager.next_update() {
-               if hitobj.update(&update) == InputConsumed {
+               if hitobj.update(&update, &self.animation_timings) == InputConsumed {
                   self.update_start_index += 1;
                }
             } else {
@@ -355,7 +290,7 @@ impl Beatmap {
 
       for i in draw_start_index..self.hitobjects.len() {
          let hitobj = self.hitobjects.get_mut(i).unwrap();
-         hitobj.update(&update);
+         hitobj.update(&update, &self.animation_timings);
          if !hitobj.hit_state().is_done() {
             if i < self.draw_start_index {
                self.draw_start_index = i;
@@ -370,13 +305,24 @@ impl Beatmap {
       }
    }
 
-   pub fn draw(&mut self, canvas: &mut WindowCanvas, texture: &mut Texture) {
+   pub fn draw(
+      &mut self, canvas: &mut WindowCanvas, texture_manager: &mut TextureManager,
+      input_manager: &mut InputManager,
+   ) {
       use DrawResult::*;
-      let mut result = NotDrawed;
 
       for i in self.draw_start_index..self.draw_end_index {
-         self.hitobjects.get(i).unwrap().draw(canvas, texture);
-         result = Drawed;
+         input_manager.poll_one();
+         self.hitobjects.get(i).unwrap().draw_self(canvas, texture_manager);
+      }
+      for i in self.draw_start_index..self.draw_end_index {
+         input_manager.poll_one();
+         self.hitobjects.get(i).unwrap().draw_approach_circle(
+            canvas,
+            texture_manager,
+            &self.animation_timings,
+            *input_manager.curr_snapshot().time(),
+         );
       }
    }
 
