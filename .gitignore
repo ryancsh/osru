@@ -1,0 +1,14 @@
+/target
+/assets/*
+*.dll
+*.mkv
+*.mp3
+*.aac
+*.mp4
+*.flv
+*.osu
+*.jpg
+*.wav
+*.png
+log.txt
+log2.txt
