@@ -1,4 +1,11 @@
-# osru
+**Last updated: 2021-10-18 10:24:26**
+
+**Currently on indefinite hiatus since I'm not satisfied with the way things are atm and I'm not sure how to go about solving them:**
+
+1. No way to tell when a screen refresh happens so the image on the screen is always pointlessly delayed unless you go for uncapped frame rates, which I feel like is a cop out and not an actual solution. If there was some way to know exactly when the last screen refresh happen, you could predict when the next one would happen and start generating a frame with the correct timing so that it would be ready right when the screen refresh happens. Even better, you could move the game state forward into a simulated game state so that you can see the game state as it should be (minus user inputs). For a simple game like this one, it would work as long as there was some way to figure out when the last screen refresh happened.
+2. Polling for input is a pain because you waste tons of CPU cycles doing this in user space when I feel like the OS should be able to implement it much more efficiently. If the OS could provide timestamped input updates, that would make things run a lot faster with a lot less power.
+
+## osru
 ***Rust rewrite of osu!***
 
 Hate reading, I'd rather see videos:
