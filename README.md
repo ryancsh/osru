@@ -5,6 +5,8 @@
 1. No way to tell when a screen refresh happens so the image on the screen is always pointlessly delayed unless you go for uncapped frame rates, which is a cop out and not an actual solution. If there was some way to know exactly when the last screen refresh happened, the game could predict the timing of the next one and simulate past the current game state to show the user a perfectly timed image (minus state that would be affected based on user input). For more complex games that run at lower frame rates, this might be jarring, but for simpler games like this one, it would work since the difference between what the real image should be and the shown image wouldn't be that big. In fact, the difference would be less than whatever you get when you arbitrarily lock the fps imo.
 2. Polling for input is a pain because you waste tons of CPU cycles doing this in user space when the OS should be able to implement it much more efficiently. If the OS could provide timestamped input updates, that would make things run a lot faster with a lot less power.
 
+Essentially, waiting on hardware support for something like this https://github.com/KhronosGroup/Vulkan-Docs/pull/1364
+
 ## osru
 ***Rust rewrite of osu!***
 
