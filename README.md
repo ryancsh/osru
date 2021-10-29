@@ -7,6 +7,8 @@
 
 Essentially, waiting on hardware support for something like this https://github.com/KhronosGroup/Vulkan-Docs/pull/1364
 
+This article describes the issue in more detail: https://medium.com/@alen.ladavac/the-elusive-frame-timing-168f899aec92
+
 ## osru
 ***Rust rewrite of osu!***
 
